@@ -86,3 +86,11 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Correction: implemented `scripts/audit_models.py` and regression tests that detect config-only models and missing shards.
 - Verification: direct filesystem inspection. Qwen3-0.6B-Base and 1.7B-Base have complete weights, but they are base models.
 - Open: obtain a complete, validated instruction-tuned Qwen3 model before fair comparison.
+
+
+## P-012 — Tang lacks SIDRA AWQ/training dependencies (OPEN)
+
+- Observed: checked Tang Python environment has PyTorch 2.10.0+cu128 / Transformers 4.57.6 but does not import `awq`, `vllm`, `accelerate`, `peft` or `trl`. HTTPS probe to Hugging Face timed out.
+- Root cause: SIDRA quantization and training environments are not yet provisioned; CodeRL-Lab may have a separate environment.
+- Mitigation: no silent installs or implicit model downloads. Use verified weights only and share one loaded checkpoint across roles to fit the 16 GB GPU.
+- Next: inspect CodeRL's pinned environment; provision and test a separate reproducible SIDRA runtime before GPU SFT/GRPO.
