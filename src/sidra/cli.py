@@ -18,7 +18,7 @@ def main() -> None:
     ev = sub.add_parser("eval", help="Run baseline and store immutable trace/metrics/manifest directory")
     ev.add_argument("--dataset", required=True, type=Path)
     ev.add_argument("--split", choices=["train", "dev", "test"], default="dev")
-    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers"], required=True)
+    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers"], required=True)
     ev.add_argument("--endpoint", help="OpenAI-compatible /v1/chat/completions URL")
     ev.add_argument("--model", help="Model served at --endpoint")
     ev.add_argument("--key-env", default="OPENAI_API_KEY")
