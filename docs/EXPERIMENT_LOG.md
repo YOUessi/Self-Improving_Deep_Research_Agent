@@ -31,3 +31,14 @@
 ## E-002 — LoRA SFT, Agentic GRPO, RSI self-improvement
 
 **NOT RUN.** Training/export scripts do not constitute a measured training result. Reserve separate records for each actual run.
+
+
+## E-001c — Pretrained 3B synthetic 8-question dev check (2026-10-26)
+
+- **Purpose:** expand the prior 2-question GPU integration smoke check to the complete synthetic fixture dev split; it is *not* an external multi-hop QA benchmark.
+- **Provenance:** Tang `~/experiments/sidra_m1/results/pretrained_qwen2p5_3b_dev8/`, manifest `created_at_utc=2026-10-25T21:18:53.368217+00:00`, `git_commit=9da592898a3ec6140799b2c939ae057b4c9d5f76`.
+- **Model:** cached `Qwen/Qwen2.5-3B-Instruct` (pretrained; no fine-tuning), Transformers GPU adapter. Greedy actions with `max_new_tokens=280`, `max_steps=8`, `max_tool_calls=7`, `search_top_k=3`, seed=42.
+- **Data:** all **8 synthetic dev** questions from `examples/fixture`, not HotpotQA or web search.
+- **Observed:** answer Exact Match **1/8 = 0.125**; token F1 **0.125**; mean evidence precision **0.3125**; mean evidence recall **0.1875**; **verified success 0/8**. Average search calls **1.0**, average read calls **1.375**, average tool calls **2.375**; all 8 terminated with `finish`. Mean wall-time `1198.5 ms`/question (only for this local test).
+- **Failure analysis:** the one exactly correct answer cited only one of two required supporting documents; other runs had incorrect answers and/or zero evidence recall. The model commonly searched once and finished before collecting both-hop support. Verify detailed cases in Tang `per_example.jsonl` and `traces.jsonl`; raw traces and synthetic dataset are not committed.
+- **Interpretation:** a successful inference integration test but **failed task/evidence behavior**. Not evidence of RSI, SFT or GRPO improvements; no model weights were updated. Main next gate: run a genuine fixed HotpotQA distractor baseline after acquiring the dataset and pinning the evaluation protocol.
