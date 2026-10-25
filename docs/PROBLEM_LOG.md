@@ -78,3 +78,11 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Observed:** 8/8 episodes terminated with `finish`, but only 1/8 answered exactly correctly and **0/8 passed independent support validation**; mean supporting-evidence recall 0.1875, mean search actions 1.0.
 - **Likely failure classes:** single-query search followed by premature answer; incomplete multi-hop reading; incorrect entity/doc selection; citing text that does not fully support the required chain.
 - **Status:** **OPEN**. No prompt/harness fix, model improvement, SFT, GRPO or RSI success is claimed. Preserve the original failing traces; test prompt/schema controls on dev-only data before training, then evaluate on an independently frozen real benchmark.
+
+
+## P-011 — Qwen3-8B cache is incomplete (OPEN)
+
+- Observed on Tang: both `Qwen3-8B` and `Qwen3-8B-AWQ` snapshot folders contain only `config.json`; no tokenizer or model weights. Folder names had previously been mistaken for runnable checkpoints.
+- Correction: implemented `scripts/audit_models.py` and regression tests that detect config-only models and missing shards.
+- Verification: direct filesystem inspection. Qwen3-0.6B-Base and 1.7B-Base have complete weights, but they are base models.
+- Open: obtain a complete, validated instruction-tuned Qwen3 model before fair comparison.
