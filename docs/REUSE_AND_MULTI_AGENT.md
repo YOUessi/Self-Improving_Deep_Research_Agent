@@ -22,3 +22,5 @@ Run `python scripts/audit_models.py` to distinguish model directories from compl
 ## Gates
 
 M2 CPU/role regression -> real multi-hop benchmark -> full instruction-tuned Qwen3 model selection -> frozen single-vs-multi baseline -> verifier-filtered SFT -> GRPO -> recursive Challenger/Solver/Verifier iterations. Current role specialization is NOT RSI training.
+
+**2026-10-26 environment follow-up:** Tang's CodeRL-Lab `.venv` contains pinned PyTorch / Transformers / TRL / PEFT / Accelerate. Prefer isolated reuse over installing dependencies into Tang's system Python. vLLM remains missing and the Qwen3-8B(-AWQ) weights remain incomplete.
