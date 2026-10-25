@@ -46,7 +46,7 @@ def main() -> None:
         policy = FixtureMultiHopPolicy()
     elif args.policy == "fixture-onehop":
         policy = FixtureOneHopPolicy()
-    elif args.policy == "transformers":
+    elif args.policy in {"transformers", "multi-transformers"}:
         if not args.model:
             parser.error("--model is required for local Transformers inference")
         from sidra.policies_transformers import TransformersPolicy
