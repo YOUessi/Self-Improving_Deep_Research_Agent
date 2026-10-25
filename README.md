@@ -1,6 +1,6 @@
 # Self-Improving Deep Research Agent (SIDRA)
 
-**Status (2026-10-26): M1 traceable-search baseline implemented and CPU smoke-tested. No actual LLM/SFT/GRPO training or RSI gain has been demonstrated yet.**
+**Status (2026-10-26): M1 traceable-search baseline and CPU smoke tests complete. Tang completed preliminary inference with cached pretrained Qwen2.5-1.5B/3B **on synthetic fixtures only**; neither achieved fully verified success on two questions. No SFT, GRPO, or RSI improvement has been demonstrated.**
 
 Research-oriented, evidence-grounded multi-hop agent with **search → read → finish**, explicit tool budgets, read-before-cite validation, JSONL trajectories, reproducible metrics, train-only SFT export, and an OpenAI-compatible model adapter (for vLLM, etc.). **GitHub is the single source of truth; Tang is reserved for experiments requiring GPU.**
 
@@ -62,7 +62,7 @@ Existing run directories cannot be overwritten by the runner. Training checkpoin
 ## Next milestones
 
 - **M1:** CPU search/trace harness and HotpotQA adapter — implemented and fixture-tested.
-- **M2:** Real model baseline on a frozen held-out dev/test benchmark. Log exact model, prompts, host, budget and raw traces. **Not yet run**.
+- **M2:** Real model baseline on frozen non-synthetic held-out dev/test benchmark. Preliminary Qwen inference **on synthetic fixtures only** was run and failed strict evidence; real benchmark **not yet run**.
 - **M3:** Verifier-filtered *train-only* trajectory SFT. LoRA training entrypoint in `training/train_sft.py`; GPU run **not yet verified**.
 - **M4:** Agentic RL / GRPO with reward/rollout integration and a strong SFT-only control. Design in [training notes](training/README.md), **not implemented**.
 - **M5:** Challenger/Solver/Verifier self-improvement for multiple generations with separate frozen external test. **Not implemented**.

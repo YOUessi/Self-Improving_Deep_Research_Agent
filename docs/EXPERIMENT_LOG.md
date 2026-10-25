@@ -12,9 +12,21 @@
 - **Issues:** see P-001 through P-005 in `docs/PROBLEM_LOG.md`.
 - **Next gate:** run actual HotpotQA distractor with a real LLM endpoint under fixed tool budgets; report confidence intervals and prompt/control equivalence. No real experiment exists yet.
 
-## E-001 — Actual pretrained model evaluation
+## E-001 — Pretrained GPU models on synthetic smoke fixtures (2026-10-26)
 
-**NOT RUN.** Reserve ID for first GPU-backed frozen real benchmark (record commit, model hash, tokenizer, host GPU, split, raw traces, budget, retries and failures).
+- **Objective:** verify real Transformers model can operate `search/read/finish` on GPU and characterize failure modes; no claims of Search Agent generalization.
+- **Host:** Tang, NVIDIA RTX 4090 Laptop GPU (16 GB), Python 3.10.12, PyTorch 2.10.0+cu128, Transformers 4.57.6, Pillow 9.0.1.
+- **Dataset:** same 40-question artificial Explorer→Region→Mineral fixture; **2 dev questions** (`fixture_000`, `fixture_004`), not a real multi-hop QA benchmark.
+- **Models:** cached Qwen/Qwen2.5-1.5B-Instruct, snapshot `989aa7980e4cf806f80c7fef2b1adb7bc71aa306`; cached Qwen/Qwen2.5-3B-Instruct, snapshot `aa8e72537993ba99e69dfaafa59ed015b17504d1`. No model updates.
+- **Parameters:** greedy generation, `max_new_tokens=280`, tool budget=7, max steps=8, BM25 top-k=3. Adapter based on committed GitHub M1 with Pillow/Accelerate compatibility fixes (`89595e78488963f40496dd2f477b55f7f31bf380`).
+- **1.5B result:** answer EM 0/2, verified 0/2; each question issued 1 search then errored due non-JSON action; error classification was preserved.
+- **3B result:** answer EM 1/2, verified 0/2; for fixture_000 it read only `region_000` and answered `Ore000` without citing the explorer document. For fixture_004 it incorrectly used the region for question 000.
+- **Storage:** `Tang:~/experiments/sidra_m1/results/pretrained_qwen2p5_m1_2q/` and `.../pretrained_qwen2p5_3b_2q/`, with traces, metrics and manifests. Historical manifest fields `git_commit=unavailable` reflect direct connector staging; updated code supports explicit commit metadata.
+- **Conclusion:** pretrained model integration works, but tool discipline and multi-hop evidence completion **fail**. No evidence of self-improvement, no GRPO, no SFT, no actual HotpotQA score. Issues P-008 through P-010.
+
+## E-001b — Real multi-hop benchmark (HotpotQA distractor)
+
+**NOT RUN.** Requires benchmark data acquisition, a frozen evaluation protocol and real pretrained model baseline.
 
 ## E-002 — LoRA SFT, Agentic GRPO, RSI self-improvement
 

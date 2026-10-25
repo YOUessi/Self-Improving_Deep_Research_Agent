@@ -42,11 +42,31 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Verification:** automated tests for fake citations, prohibited read, group leakage and dev-to-SFT rejection pass.
 - **Remaining risk:** semantic entailment is NOT proven by substring attribution check; add human-audited evidence evaluation before publication.
 
-## P-006 — Bulk GitHub upload exceeded one-call orchestration limit (resolved)
+## P-007 — Tang could not clone GitHub directly (workaround applied)
 
-- **Trigger:** initial batch attempted to create all 32 Git blobs inside a single code orchestration invocation.
-- **Observed:** after the first 15 successful blobs, the orchestration hit a per-call tool invocation cap; no tree/commit was made, so the feature branch was still unchanged.
-- **Root cause:** connector orchestration has a bounded number of tool calls per invocation.
-- **Correction:** compute canonical Git blob SHA-1 for each local UTF-8 source; upload remaining blobs in smaller batches, then create **one atomic Git tree and commit** and fast-forward the feature branch with expected-SHA lease.
-- **Verification:** GitHub returned feature commit `97f45b011ac4d0cba5bed5f694f376a7963620ff`, containing all 32 files. Direct `fetch_file` retrieved `src/sidra/agent.py` and `docs/PROBLEM_LOG.md` from the branch with matching blob hashes.
-- **Impact:** intermediate blobs existed unattached; no partial project snapshot was pushed to the branch. The branch was only advanced after the complete 32-file tree was available.
+- **Observed:** `git ls-remote` and direct HTTPS probes from Mac and Tang stalled/timed out; remote Git access could not be relied upon.
+- **Correction:** commit and SHA-verify all files using GitHub connector; selectively relay the **already committed GitHub files** to Tang through authorized remote file operations. Record the exact GitHub snapshot SHA in a local `GITHUB_COMMIT.txt`.
+- **Verification:** Tang reproduced 8/8 synthetic fixture smoke success, matching the CPU builder; later ran a pretrained Qwen 1.5B/3B inference baseline.
+- **Remaining risk:** Tang local files are an execution mirror, not a separate canonical Git repository. Use `SIDRA_GIT_SHA` or `GITHUB_COMMIT.txt` in run metadata.
+
+## P-008 — Incompatible system Pillow prevented Qwen2 import (resolved with a local shim)
+
+- **Observed:** Transformers 4.57.6 on Tang crashed with `AttributeError: module 'PIL.Image' has no attribute 'Resampling'`.
+- **Cause:** Tang has Pillow 9.0.1, but Transformers' image utility assumes newer Pillow API.
+- **Correction:** in `policies_transformers.py`, before Transformers import, set process-local `PIL.Image.Resampling = PIL.Image` only if missing. Do not modify the system site-packages.
+- **Verification:** direct `Qwen2ForCausalLM` import succeeded; Qwen2.5-1.5B and Qwen2.5-3B both loaded and generated actions on the GPU.
+
+## P-009 — Missing accelerate blocked automatic device map (resolved for small models)
+
+- **Observed:** `ValueError: ... device_map ... requires accelerate` during Qwen loading.
+- **Cause:** `accelerate` is not installed in Tang's current Python, and network installation is unavailable.
+- **Correction:** for **small cached instruct models that fit in 16 GB VRAM**, avoid `device_map` and call `.to("cuda")` after loading, in the optional pretrained Transformers policy.
+- **Verification:** 1.5B and 3B models completed GPU evaluations.
+- **Remaining risk:** the approach is not suitable for large/quantized models or distributed workloads. Install and version-pin Accelerate/vLLM separately before larger experiments.
+
+## P-010 — Pretrained LLM fails strict evidence/tool-use on synthetic tasks (OPEN: research problem)
+
+- **Observed:** 1.5B instruct model produced a valid initial search but malformed second-step action JSON on both dev questions (0/2 EM). 3B instructed model produced 1/2 EM, but neither answer passed complete evidence verification (0/2).
+- **Cause hypothesis:** action formatting is unstable and the policy does not reliably discover/read both dependency documents; also chooses a premature final answer or repeats reads.
+- **Action:** preserve failed traces, refine prompts/structured-output testing and plan/evidence policies, compare against no-retrieval/single-hop and fixed-budget controls, then only train on verified train traces. Do **not** mark as fixed until real held-out verification improves.
+- **Verification:** raw synthetic GPU trace files are retained on Tang under `~/experiments/sidra_m1/results/`; a summary is in `docs/EXPERIMENT_LOG.md`.

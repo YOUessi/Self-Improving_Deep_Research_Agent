@@ -60,3 +60,27 @@ def test_verifier_does_not_credit_correct_answer_without_evidence(fixture_data):
     result = SearchAgent(docs, FixtureMultiHopPolicy()).run(q)
     result.citations = []
     assert score_trace(q, result, {d.doc_id: d for d in docs})["verified_success"] == 0
+
+
+def test_pretrained_model_on_fixture_is_not_labeled_real_benchmark(fixture_dir, tmp_path):
+    class PretrainedFake:
+        name = "transformers_pretrained_agent"
+        model_name = "example/instruct"
+        max_new_tokens = 80
+
+        def decide(self, question, observations, remaining):
+            return Action(kind="finish", answer="")
+
+    dest = tmp_path / "synthetic_llm"
+    evaluate(fixture_dir, "dev", PretrainedFake(), dest, limit=1)
+    meta = json.loads((dest / "manifest.json").read_text())
+    assert meta["synthetic_fixture"] is True
+    assert meta["stage"] == "pretrained_model_on_synthetic_smoke"
+    assert meta["model_id"] == "example/instruct"
+
+
+def test_git_sha_override(monkeypatch):
+    from sidra.experiment import git_sha
+    fake = "a" * 40
+    monkeypatch.setenv("SIDRA_GIT_SHA", fake)
+    assert git_sha() == fake

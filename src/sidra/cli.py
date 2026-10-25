@@ -28,6 +28,7 @@ def main() -> None:
     ev.add_argument("--search-top-k", type=int, default=3)
     ev.add_argument("--limit", type=int, default=0)
     ev.add_argument("--seed", type=int, default=42)
+    ev.add_argument("--max-new-tokens", type=int, default=280)
     export = sub.add_parser("export-sft", help="Export only fully verified TRAIN traces")
     export.add_argument("--dataset", type=Path, required=True)
     export.add_argument("--traces", type=Path, required=True)
@@ -49,7 +50,7 @@ def main() -> None:
         if not args.model:
             parser.error("--model is required for local Transformers inference")
         from sidra.policies_transformers import TransformersPolicy
-        policy = TransformersPolicy(args.model)
+        policy = TransformersPolicy(args.model, max_new_tokens=args.max_new_tokens)
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
