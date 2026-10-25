@@ -45,3 +45,12 @@ Exit code **0** with `ready=true` for both is required before saying either mode
 **Resource note:** full BF16 8B weights alone occupy roughly 16.4 GB (decimal), so one 16GB GPU is not sufficient for comfortable full-precision inference with KV cache; AWQ 4-bit is the preferred inference candidate after an independent runtime compatibility test. Merely passing SHA verification is not proof that AWQ is compatible with the installed Transformers/vLLM stack.
 
 Status at initialization: **downloads started, final checksum verification pending**. No model inference or training result was claimed.
+
+
+## AWQ checkpoint completed and verified (2026-10-26)
+
+- `modelscope download Qwen/Qwen3-8B-AWQ` exited successfully (code 0).
+- Local path `/home/you/models/Qwen3-8B-AWQ`; two weight shards total 6,098,581,864 bytes (decimal).
+- Independent `scripts/verify_modelscope_models.py --model Qwen3-8B-AWQ`: `ready=true`, **both safetensors shards + index.json + tokenizer.json SHA256 hashes match the official manifest**.
+- CPU-only metadata smoke using CodeRL-Lab's existing Transformers environment succeeded: Qwen3 AutoConfig, tokenizer, and `enable_thinking=False` chat template. **No AWQ GPU inference or model-quality benchmark yet.**
+- Full BF16 Qwen3-8B is still downloading; its independent checksum report remains pending.
