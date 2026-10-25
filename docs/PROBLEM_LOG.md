@@ -108,3 +108,10 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Observed: committing and running CI on GitHub succeeds; remote synchronization of one policy source file was rejected by the connected tool's safety checks. Tang cannot reliably fetch GitHub directly.
 - Correction: do not claim M2 GPU inference from a partial mirror. Preserve the existing M1 Qwen2.5 baseline as the last actual model test.
 - Next: use a permitted, verifiable synchronization method before running the matched multi-role model comparison.
+
+
+### P-012 follow-up — CodeRL virtual environment is usable for future SIDRA training
+
+- Further inspection found `/home/you/projects/CodeRL-Lab/.venv/bin/python` with Transformers 5.18.0, TRL 1.14.1, PEFT 0.21.2, Accelerate 1.15.0, Datasets 5.1.0 and PyTorch 2.10.0+cu128.
+- Thus P-012's missing-library observation applies ONLY to Tang's system Python. A functioning, separately managed CodeRL training environment exists; `vllm` is still absent there.
+- Decision: reuse that **environment and post-training methodology** for a distinct Search Agent experiment after dataset and verifier gates; do not overwrite CodeRL checkpoints or treat coding LoRA weights as Search Agent tuning.
