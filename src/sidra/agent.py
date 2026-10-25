@@ -50,6 +50,15 @@ class SearchAgent:
                 if not isinstance(action, Action):
                     raise TypeError("Policy must return an Action")
                 entry = {"step": step, "action": action.to_dict()}
+                # Role labels / source-only audit verdicts are observable research
+                # events; no private reasoning or evaluator ground truth is logged.
+                role = getattr(self.policy, "last_role", "")
+                if role:
+                    entry["role"] = role
+                    entry["role_model_calls"] = getattr(self.policy, "last_model_calls", 0)
+                verification = getattr(self.policy, "last_verification", None)
+                if verification is not None:
+                    entry["verification"] = verification
                 if action.kind == "finish":
                     unknown = set(action.citations) - read_ids
                     if unknown:
