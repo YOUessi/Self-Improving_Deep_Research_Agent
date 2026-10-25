@@ -115,3 +115,12 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Further inspection found `/home/you/projects/CodeRL-Lab/.venv/bin/python` with Transformers 5.18.0, TRL 1.14.1, PEFT 0.21.2, Accelerate 1.15.0, Datasets 5.1.0 and PyTorch 2.10.0+cu128.
 - Thus P-012's missing-library observation applies ONLY to Tang's system Python. A functioning, separately managed CodeRL training environment exists; `vllm` is still absent there.
 - Decision: reuse that **environment and post-training methodology** for a distinct Search Agent experiment after dataset and verifier gates; do not overwrite CodeRL checkpoints or treat coding LoRA weights as Search Agent tuning.
+
+
+## P-015 — Hugging Face HTTPS timeout while downloading Qwen3-8B (workaround operating; final verification pending)
+
+- **Observed on Tang (2026-10-26):** DNS for `huggingface.co` returned `157.240.16.50`; curl TCP/443 timed out. Mac separately resolved `huggingface.co` to `108.160.165.173` and also timed out. Both are suspicious results, but root cause cannot be proven solely from these observations.
+- **Comparison:** HTTPS to GitHub, `hf-mirror.com` and official ModelScope returned 200. Direct GitHub code repository is not a substitute for the Qwen3 model weight repositories.
+- **Workaround:** isolated ModelScope 1.40.2 environment, official models `Qwen/Qwen3-8B` and `Qwen/Qwen3-8B-AWQ`, downloaded into separate `/home/you/models/` directories. Avoid system DNS changes and avoid modifying CodeRL-Lab's runtime.
+- **Verification:** `scripts/verify_modelscope_models.py` pins official file byte sizes and SHA-256 digests. Both download processes started and transferred real `.safetensors.incomplete` bytes. **Neither checkpoint is marked ready until transfers finish and all SHA-256 checks pass**.
+- **Reproduction / logs:** `docs/MODEL_DOWNLOAD_20261026.md`; Tang download logs under `~/experiments/sidra_download/logs/`.
