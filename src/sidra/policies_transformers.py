@@ -17,6 +17,15 @@ class TransformersPolicy:
 
     def __init__(self, model: str, max_new_tokens: int = 280):
         try:
+            # Tang has Pillow 9.0.1. Transformers 4.57 image_utils references
+            # PIL.Image.Resampling which was introduced in newer Pillow.
+            # Provide a *process-local* API alias, without changing system packages.
+            try:
+                from PIL import Image
+                if not hasattr(Image, "Resampling"):
+                    Image.Resampling = Image
+            except ImportError:
+                pass
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
