@@ -29,6 +29,7 @@ def main() -> None:
     ev.add_argument("--limit", type=int, default=0)
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--max-new-tokens", type=int, default=280)
+    ev.add_argument("--min-citations", type=int, default=2)
     export = sub.add_parser("export-sft", help="Export only fully verified TRAIN traces")
     export.add_argument("--dataset", type=Path, required=True)
     export.add_argument("--traces", type=Path, required=True)
