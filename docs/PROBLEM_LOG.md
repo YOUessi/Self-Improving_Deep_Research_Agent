@@ -124,3 +124,11 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Workaround:** isolated ModelScope 1.40.2 environment, official models `Qwen/Qwen3-8B` and `Qwen/Qwen3-8B-AWQ`, downloaded into separate `/home/you/models/` directories. Avoid system DNS changes and avoid modifying CodeRL-Lab's runtime.
 - **Verification:** `scripts/verify_modelscope_models.py` pins official file byte sizes and SHA-256 digests. Both download processes started and transferred real `.safetensors.incomplete` bytes. **Neither checkpoint is marked ready until transfers finish and all SHA-256 checks pass**.
 - **Reproduction / logs:** `docs/MODEL_DOWNLOAD_20261026.md`; Tang download logs under `~/experiments/sidra_download/logs/`.
+
+
+### P-015 closure — ModelScope workaround fully verified (2026-10-26)
+
+- Both Qwen3-8B BF16 (5 weight shards) and Qwen3-8B-AWQ (2 weight shards) completed with download process exit code 0.
+- Independent full-file SHA-256 check matched the official ModelScope manifest for **every weight shard, tokenizer.json and index.json**: total 11/11 verified files, exit code 0, no unfinished shards.
+- Source of verification: `docs/QWEN3_MODEL_VALIDATION_20261026.json` and Tang `~/experiments/sidra_download/verification_report.json`; CodeRL-Lab's existing environment successfully parsed both configs/tokenizers.
+- **Resolution:** model downloads successful through the official ModelScope channel. The Hugging Face DNS/HTTPS outage itself remains unresolved and no system DNS changes were made. AWQ GPU inference is a separate pending validation.
