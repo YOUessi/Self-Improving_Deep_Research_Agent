@@ -41,3 +41,12 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Correction:** SearchAgent passes only question text + retrieved observations; API prohibits citation to unread IDs; export SFT raises on non-train examples and requires independently re-scored success; group split isolation is checked.
 - **Verification:** automated tests for fake citations, prohibited read, group leakage and dev-to-SFT rejection pass.
 - **Remaining risk:** semantic entailment is NOT proven by substring attribution check; add human-audited evidence evaluation before publication.
+
+## P-006 — Bulk GitHub upload exceeded one-call orchestration limit (resolved)
+
+- **Trigger:** initial batch attempted to create all 32 Git blobs inside a single code orchestration invocation.
+- **Observed:** after the first 15 successful blobs, the orchestration hit a per-call tool invocation cap; no tree/commit was made, so the feature branch was still unchanged.
+- **Root cause:** connector orchestration has a bounded number of tool calls per invocation.
+- **Correction:** compute canonical Git blob SHA-1 for each local UTF-8 source; upload remaining blobs in smaller batches, then create **one atomic Git tree and commit** and fast-forward the feature branch with expected-SHA lease.
+- **Verification:** GitHub returned feature commit `97f45b011ac4d0cba5bed5f694f376a7963620ff`, containing all 32 files. Direct `fetch_file` retrieved `src/sidra/agent.py` and `docs/PROBLEM_LOG.md` from the branch with matching blob hashes.
+- **Impact:** intermediate blobs existed unattached; no partial project snapshot was pushed to the branch. The branch was only advanced after the complete 32-file tree was available.
