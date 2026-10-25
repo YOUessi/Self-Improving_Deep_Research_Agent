@@ -56,6 +56,9 @@ def main() -> None:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
         policy = OpenAICompatiblePolicy(args.endpoint, args.model, key_env=args.key_env)
+    if args.policy.startswith("multi-"):
+        from sidra.multi_agent import MultiAgentPolicy
+        policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
     config = AgentConfig(max_steps=args.max_steps,
                          max_tool_calls=args.max_tool_calls, search_top_k=args.search_top_k)
     result = evaluate(args.dataset, args.split, policy, args.out, config, args.limit, args.seed)
