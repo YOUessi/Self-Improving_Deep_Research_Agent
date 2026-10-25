@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sidra"
+version = "0.1.0"
+description = "Self-Improving Deep Research Agent: grounded iterative search, trace logging and reproducible evaluation"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Research Contributors"}]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.0", "ruff>=0.6"]
+sft = ["torch>=2.3", "datasets>=3.0", "transformers>=4.51", "trl>=0.17", "peft>=0.15", "accelerate>=1.0"]
+
+[project.scripts]
+sidra = "sidra.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
