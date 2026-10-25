@@ -38,8 +38,8 @@ class TransformersPolicy:
         # local_files_only prevents implicit network / uncaught model changes.
         self.tokenizer = AutoTokenizer.from_pretrained(model, local_files_only=True)
         self.model = AutoModelForCausalLM.from_pretrained(
-            model, local_files_only=True, dtype="auto", device_map="auto",
-        ).eval()
+            model, local_files_only=True, dtype="auto",
+        ).to("cuda").eval()
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         messages = [
