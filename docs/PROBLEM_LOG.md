@@ -70,3 +70,11 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Cause hypothesis:** action formatting is unstable and the policy does not reliably discover/read both dependency documents; also chooses a premature final answer or repeats reads.
 - **Action:** preserve failed traces, refine prompts/structured-output testing and plan/evidence policies, compare against no-retrieval/single-hop and fixed-budget controls, then only train on verified train traces. Do **not** mark as fixed until real held-out verification improves.
 - **Verification:** raw synthetic GPU trace files are retained on Tang under `~/experiments/sidra_m1/results/`; a summary is in `docs/EXPERIMENT_LOG.md`.
+
+
+### P-010 follow-up — Full synthetic dev split confirms incomplete evidence (2026-10-26; still OPEN)
+
+- **Reproduction:** Tang Qwen2.5-3B-Instruct run `results/pretrained_qwen2p5_3b_dev8/` using GitHub snapshot `9da592898a3ec6140799b2c939ae057b4c9d5f76`.
+- **Observed:** 8/8 episodes terminated with `finish`, but only 1/8 answered exactly correctly and **0/8 passed independent support validation**; mean supporting-evidence recall 0.1875, mean search actions 1.0.
+- **Likely failure classes:** single-query search followed by premature answer; incomplete multi-hop reading; incorrect entity/doc selection; citing text that does not fully support the required chain.
+- **Status:** **OPEN**. No prompt/harness fix, model improvement, SFT, GRPO or RSI success is claimed. Preserve the original failing traces; test prompt/schema controls on dev-only data before training, then evaluate on an independently frozen real benchmark.
