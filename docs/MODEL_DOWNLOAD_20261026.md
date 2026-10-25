@@ -54,3 +54,15 @@ Status at initialization: **downloads started, final checksum verification pendi
 - Independent `scripts/verify_modelscope_models.py --model Qwen3-8B-AWQ`: `ready=true`, **both safetensors shards + index.json + tokenizer.json SHA256 hashes match the official manifest**.
 - CPU-only metadata smoke using CodeRL-Lab's existing Transformers environment succeeded: Qwen3 AutoConfig, tokenizer, and `enable_thinking=False` chat template. **No AWQ GPU inference or model-quality benchmark yet.**
 - Full BF16 Qwen3-8B is still downloading; its independent checksum report remains pending.
+
+
+## Final result — BOTH downloads completed and SHA-256 verified
+
+- **Qwen3-8B BF16:** official ModelScope download exited 0, five safetensors shards total **16,381,516,776 bytes**. SHA-256 matched for 5/5 shards, tokenizer.json and index.json; validation `ready=true` (7/7 files), no incomplete files.
+- **Qwen3-8B-AWQ:** official download exited 0, two safetensors shards total **6,098,581,864 bytes**. SHA-256 matched for 2/2 shards, tokenizer.json and index.json; validation `ready=true` (4/4 files), no incomplete files.
+- The independent verification process exited **0** and stored the full report in Tang `~/experiments/sidra_download/verification_report.json`.
+- Exact non-sensitive verification output is checked in as [QWEN3_MODEL_VALIDATION_20261026.json](QWEN3_MODEL_VALIDATION_20261026.json).
+- CPU-only metadata smoke: both models' `AutoConfig`, `AutoTokenizer`, and Qwen3 chat template parsed successfully in the pre-existing CodeRL-Lab venv.
+- Tang retained about **115 GB free disk** at completion; no checkpoint weights were added to GitHub.
+
+**Scope:** file integrity is verified. The original direct Hugging Face DNS/HTTPS issue remains unresolved; ModelScope solved the download requirement without changing network settings. The **AWQ GPU inference runtime** and BF16 GPU memory suitability have NOT been validated in this download task. Do not treat file integrity or tokenizer smoke as model quality/agent benchmark results.
