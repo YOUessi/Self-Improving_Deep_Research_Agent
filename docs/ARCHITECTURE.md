@@ -34,7 +34,7 @@ Train-only, verified-success filter --> prompt/completion action supervision
 
 1. M1 uses basic BM25 for local text. No semantic retriever, web connector, reranking or live search.
 2. The `fixture_*` policies hard-code *synthetic* template behavior; their scores are NOT a real baseline or evidence of learned reasoning.
-3. For OpenAI-compatible backends, malformed JSON and unavailable endpoints terminate trace with an error. We do not silently turn invalid calls into correct answers.
+3. For OpenAI-compatible backends, malformed JSON and unavailable endpoints terminate trace with an error. We do not silently turn invalid calls into correct answers. For Tang with cached model weights, `--policy transformers` uses Hugging Face `local_files_only=True` inference without a server (requires CUDA; pretrained baseline only).
 4. Citation checks enforce *read-before-cite*, not full natural-language entailment. `answer_in_cited_evidence` is an approximate substring check and will miss some semantically equivalent answers. Add robust attribution judgements with a human-audited subset in M2.
 5. HotpotQA conversion is distractor (candidate passages scoped to each question), not full Wikipedia / live web. Its results must not be compared as if they used identical retrieval settings to open-domain methods.
 6. Latency from local synthetic tests is too small to be meaningful. TTFT and token counts require instrumentation of the model server in M2.

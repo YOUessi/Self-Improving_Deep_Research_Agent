@@ -29,8 +29,15 @@ If pip cannot reach PyPI but pytest is already installed, use `PYTHONPATH=src py
 python scripts/convert_hotpotqa.py --input /path/to/hotpot_dev_distractor_v1.json --out benchmarks/hotpotqa_dev --split dev --limit 200
 ```
 
-3. Start a local vLLM OpenAI-compatible server on Tang only when inference needs a GPU; alternatively use an explicitly selected remote OpenAI-compatible endpoint.
-4. Evaluate with a fixed model, retrieval budget, and seeded dataset subset:
+3. On Tang, if a compatible instruct model is already cached, the simplest **offline GPU** baseline avoids installing vLLM:
+
+```bash
+sidra eval --dataset benchmarks/hotpotqa_dev --split dev --policy transformers \
+  --model Qwen/Qwen2.5-1.5B-Instruct --max-steps 8 --max-tool-calls 7 \
+  --limit 200 --out results/hotpot_dev_qwen2p5_pretrained
+```
+
+4. Alternatively start vLLM (if separately installed) or use an explicitly selected OpenAI-compatible endpoint. Evaluate with fixed budgets:
 
 ```bash
 export OPENAI_API_KEY=""  # local vLLM usually does not need one

@@ -18,7 +18,7 @@ def main() -> None:
     ev = sub.add_parser("eval", help="Run baseline and store immutable trace/metrics/manifest directory")
     ev.add_argument("--dataset", required=True, type=Path)
     ev.add_argument("--split", choices=["train", "dev", "test"], default="dev")
-    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai"], required=True)
+    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers"], required=True)
     ev.add_argument("--endpoint", help="OpenAI-compatible /v1/chat/completions URL")
     ev.add_argument("--model", help="Model served at --endpoint")
     ev.add_argument("--key-env", default="OPENAI_API_KEY")
@@ -45,6 +45,11 @@ def main() -> None:
         policy = FixtureMultiHopPolicy()
     elif args.policy == "fixture-onehop":
         policy = FixtureOneHopPolicy()
+    elif args.policy == "transformers":
+        if not args.model:
+            parser.error("--model is required for local Transformers inference")
+        from sidra.policies_transformers import TransformersPolicy
+        policy = TransformersPolicy(args.model)
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
