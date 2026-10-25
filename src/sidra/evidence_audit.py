@@ -28,6 +28,7 @@ class EvidenceAudit:
         if not set(ids).issubset(read):
             return Audit(False, "unread_citations")
         text = normalize_answer(" ".join(read[i] for i in ids))
-        if normalize_answer(candidate.answer) not in text:
+        answer = normalize_answer(candidate.answer)
+        if not answer or answer not in text:
             return Audit(False, "answer_not_in_sources")
         return Audit(True, "lexical_only")
