@@ -94,3 +94,17 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Root cause: SIDRA quantization and training environments are not yet provisioned; CodeRL-Lab may have a separate environment.
 - Mitigation: no silent installs or implicit model downloads. Use verified weights only and share one loaded checkpoint across roles to fit the 16 GB GPU.
 - Next: inspect CodeRL's pinned environment; provision and test a separate reproducible SIDRA runtime before GPU SFT/GRPO.
+
+
+## P-013 — Multi-role agents may leak evaluation labels or inflate budgets (CPU mitigated)
+
+- Risk: planner/researcher/solver/verifier could share hidden gold labels, cite unread documents or receive more tool calls than a single-agent comparison.
+- Mitigation: new `MultiAgentPolicy` routes tools through the original bounded SearchAgent. Three role prompts use question and observations only. `EvidenceAudit` requires distinct read citations and lexical support.
+- Tests: role sequence, no gold labels in prompt/history, early-finish rejection, unread-citation rejection. CI passes.
+- Remaining: lexical presence is NOT semantic entailment; real-model role collaboration may require extra inference calls and has not demonstrated a performance benefit.
+
+## P-014 — M2 Tang mirror is not fully synchronized (OPEN)
+
+- Observed: committing and running CI on GitHub succeeds; remote synchronization of one policy source file was rejected by the connected tool's safety checks. Tang cannot reliably fetch GitHub directly.
+- Correction: do not claim M2 GPU inference from a partial mirror. Preserve the existing M1 Qwen2.5 baseline as the last actual model test.
+- Next: use a permitted, verifiable synchronization method before running the matched multi-role model comparison.
