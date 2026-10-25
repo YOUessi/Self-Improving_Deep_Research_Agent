@@ -42,16 +42,24 @@ class TransformersPolicy:
         ).to("cuda").eval()
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
+        return self.decide_with_system(question, observations, remaining, SYSTEM)
+
+    def decide_with_system(self, question: str, observations: list[dict],
+                           remaining: int, system_prompt: str) -> Action:
         messages = [
-            {"role": "system", "content": SYSTEM},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps({
                 "question": question,
                 "remaining_steps": remaining,
                 "tool_history": observations,
             }, ensure_ascii=False)},
         ]
+        # Qwen3 has distinct thinking/non-thinking chat templates. For
+        # structured JSON tool actions use its non-thinking mode first.
+        # Do not silently apply this option to older model families.
+        template_options = {"enable_thinking": False} if "qwen3" in self.model_name.casefold() else {}
         prompt = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True, **template_options
         )
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         with self.torch.inference_mode():

@@ -78,3 +78,57 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Observed:** 8/8 episodes terminated with `finish`, but only 1/8 answered exactly correctly and **0/8 passed independent support validation**; mean supporting-evidence recall 0.1875, mean search actions 1.0.
 - **Likely failure classes:** single-query search followed by premature answer; incomplete multi-hop reading; incorrect entity/doc selection; citing text that does not fully support the required chain.
 - **Status:** **OPEN**. No prompt/harness fix, model improvement, SFT, GRPO or RSI success is claimed. Preserve the original failing traces; test prompt/schema controls on dev-only data before training, then evaluate on an independently frozen real benchmark.
+
+
+## P-011 — Qwen3-8B cache is incomplete (OPEN)
+
+- Observed on Tang: both `Qwen3-8B` and `Qwen3-8B-AWQ` snapshot folders contain only `config.json`; no tokenizer or model weights. Folder names had previously been mistaken for runnable checkpoints.
+- Correction: implemented `scripts/audit_models.py` and regression tests that detect config-only models and missing shards.
+- Verification: direct filesystem inspection. Qwen3-0.6B-Base and 1.7B-Base have complete weights, but they are base models.
+- Open: obtain a complete, validated instruction-tuned Qwen3 model before fair comparison.
+
+
+## P-012 — Tang lacks SIDRA AWQ/training dependencies (OPEN)
+
+- Observed: checked Tang Python environment has PyTorch 2.10.0+cu128 / Transformers 4.57.6 but does not import `awq`, `vllm`, `accelerate`, `peft` or `trl`. HTTPS probe to Hugging Face timed out.
+- Root cause: SIDRA quantization and training environments are not yet provisioned; CodeRL-Lab may have a separate environment.
+- Mitigation: no silent installs or implicit model downloads. Use verified weights only and share one loaded checkpoint across roles to fit the 16 GB GPU.
+- Next: inspect CodeRL's pinned environment; provision and test a separate reproducible SIDRA runtime before GPU SFT/GRPO.
+
+
+## P-013 — Multi-role agents may leak evaluation labels or inflate budgets (CPU mitigated)
+
+- Risk: planner/researcher/solver/verifier could share hidden gold labels, cite unread documents or receive more tool calls than a single-agent comparison.
+- Mitigation: new `MultiAgentPolicy` routes tools through the original bounded SearchAgent. Three role prompts use question and observations only. `EvidenceAudit` requires distinct read citations and lexical support.
+- Tests: role sequence, no gold labels in prompt/history, early-finish rejection, unread-citation rejection. CI passes.
+- Remaining: lexical presence is NOT semantic entailment; real-model role collaboration may require extra inference calls and has not demonstrated a performance benefit.
+
+## P-014 — M2 Tang mirror is not fully synchronized (OPEN)
+
+- Observed: committing and running CI on GitHub succeeds; remote synchronization of one policy source file was rejected by the connected tool's safety checks. Tang cannot reliably fetch GitHub directly.
+- Correction: do not claim M2 GPU inference from a partial mirror. Preserve the existing M1 Qwen2.5 baseline as the last actual model test.
+- Next: use a permitted, verifiable synchronization method before running the matched multi-role model comparison.
+
+
+### P-012 follow-up — CodeRL virtual environment is usable for future SIDRA training
+
+- Further inspection found `/home/you/projects/CodeRL-Lab/.venv/bin/python` with Transformers 5.18.0, TRL 1.14.1, PEFT 0.21.2, Accelerate 1.15.0, Datasets 5.1.0 and PyTorch 2.10.0+cu128.
+- Thus P-012's missing-library observation applies ONLY to Tang's system Python. A functioning, separately managed CodeRL training environment exists; `vllm` is still absent there.
+- Decision: reuse that **environment and post-training methodology** for a distinct Search Agent experiment after dataset and verifier gates; do not overwrite CodeRL checkpoints or treat coding LoRA weights as Search Agent tuning.
+
+
+## P-015 — Hugging Face HTTPS timeout while downloading Qwen3-8B (workaround operating; final verification pending)
+
+- **Observed on Tang (2026-10-26):** DNS for `huggingface.co` returned `157.240.16.50`; curl TCP/443 timed out. Mac separately resolved `huggingface.co` to `108.160.165.173` and also timed out. Both are suspicious results, but root cause cannot be proven solely from these observations.
+- **Comparison:** HTTPS to GitHub, `hf-mirror.com` and official ModelScope returned 200. Direct GitHub code repository is not a substitute for the Qwen3 model weight repositories.
+- **Workaround:** isolated ModelScope 1.40.2 environment, official models `Qwen/Qwen3-8B` and `Qwen/Qwen3-8B-AWQ`, downloaded into separate `/home/you/models/` directories. Avoid system DNS changes and avoid modifying CodeRL-Lab's runtime.
+- **Verification:** `scripts/verify_modelscope_models.py` pins official file byte sizes and SHA-256 digests. Both download processes started and transferred real `.safetensors.incomplete` bytes. **Neither checkpoint is marked ready until transfers finish and all SHA-256 checks pass**.
+- **Reproduction / logs:** `docs/MODEL_DOWNLOAD_20261026.md`; Tang download logs under `~/experiments/sidra_download/logs/`.
+
+
+### P-015 closure — ModelScope workaround fully verified (2026-10-26)
+
+- Both Qwen3-8B BF16 (5 weight shards) and Qwen3-8B-AWQ (2 weight shards) completed with download process exit code 0.
+- Independent full-file SHA-256 check matched the official ModelScope manifest for **every weight shard, tokenizer.json and index.json**: total 11/11 verified files, exit code 0, no unfinished shards.
+- Source of verification: `docs/QWEN3_MODEL_VALIDATION_20261026.json` and Tang `~/experiments/sidra_download/verification_report.json`; CodeRL-Lab's existing environment successfully parsed both configs/tokenizers.
+- **Resolution:** model downloads successful through the official ModelScope channel. The Hugging Face DNS/HTTPS outage itself remains unresolved and no system DNS changes were made. AWQ GPU inference is a separate pending validation.

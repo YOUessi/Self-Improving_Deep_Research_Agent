@@ -18,7 +18,7 @@ def main() -> None:
     ev = sub.add_parser("eval", help="Run baseline and store immutable trace/metrics/manifest directory")
     ev.add_argument("--dataset", required=True, type=Path)
     ev.add_argument("--split", choices=["train", "dev", "test"], default="dev")
-    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers"], required=True)
+    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers"], required=True)
     ev.add_argument("--endpoint", help="OpenAI-compatible /v1/chat/completions URL")
     ev.add_argument("--model", help="Model served at --endpoint")
     ev.add_argument("--key-env", default="OPENAI_API_KEY")
@@ -29,6 +29,7 @@ def main() -> None:
     ev.add_argument("--limit", type=int, default=0)
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--max-new-tokens", type=int, default=280)
+    ev.add_argument("--min-citations", type=int, default=2)
     export = sub.add_parser("export-sft", help="Export only fully verified TRAIN traces")
     export.add_argument("--dataset", type=Path, required=True)
     export.add_argument("--traces", type=Path, required=True)
@@ -46,7 +47,7 @@ def main() -> None:
         policy = FixtureMultiHopPolicy()
     elif args.policy == "fixture-onehop":
         policy = FixtureOneHopPolicy()
-    elif args.policy == "transformers":
+    elif args.policy in {"transformers", "multi-transformers"}:
         if not args.model:
             parser.error("--model is required for local Transformers inference")
         from sidra.policies_transformers import TransformersPolicy
@@ -55,6 +56,9 @@ def main() -> None:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
         policy = OpenAICompatiblePolicy(args.endpoint, args.model, key_env=args.key_env)
+    if args.policy.startswith("multi-"):
+        from sidra.multi_agent import MultiAgentPolicy
+        policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
     config = AgentConfig(max_steps=args.max_steps,
                          max_tool_calls=args.max_tool_calls, search_top_k=args.search_top_k)
     result = evaluate(args.dataset, args.split, policy, args.out, config, args.limit, args.seed)

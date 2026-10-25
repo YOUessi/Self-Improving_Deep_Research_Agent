@@ -42,3 +42,13 @@
 - **Observed:** answer Exact Match **1/8 = 0.125**; token F1 **0.125**; mean evidence precision **0.3125**; mean evidence recall **0.1875**; **verified success 0/8**. Average search calls **1.0**, average read calls **1.375**, average tool calls **2.375**; all 8 terminated with `finish`. Mean wall-time `1198.5 ms`/question (only for this local test).
 - **Failure analysis:** the one exactly correct answer cited only one of two required supporting documents; other runs had incorrect answers and/or zero evidence recall. The model commonly searched once and finished before collecting both-hop support. Verify detailed cases in Tang `per_example.jsonl` and `traces.jsonl`; raw traces and synthetic dataset are not committed.
 - **Interpretation:** a successful inference integration test but **failed task/evidence behavior**. Not evidence of RSI, SFT or GRPO improvements; no model weights were updated. Main next gate: run a genuine fixed HotpotQA distractor baseline after acquiring the dataset and pinning the evaluation protocol.
+
+
+## E-002 — M2 role-specialization CPU validation (2026-10-26)
+
+- **Task:** add Planner / Researcher / Solver / source-only Verifier under the same bounded SearchAgent; audit local model weights before selecting pretrained checkpoints.
+- **Model:** none; CPU unit/integration tests only. The synthetic two-hop fixture uses deterministic scripted roles, NOT a learned model.
+- **Test gate:** GitHub Actions `run 40236905821` completed successfully with **26 passed** on Python 3.10 and Python 3.12. Compilation check also passed.
+- **Controls:** early finish blocked, citations require read sources, no benchmark gold answer in prompts/role history, config-only Qwen3 cache rejected, missing weight shard detected.
+- **Limitations:** the implementation is sequential role specialization on one model backend. No independent concurrent role inference, HotpotQA benchmark, valid model-versus-model comparison, SFT, GRPO, or RSI improvement has been run for M2.
+- **Next:** synchronize the full GitHub snapshot to Tang through an approved method, then compare single and multi-role on the SAME frozen real benchmark with equal tool budgets and reported inference calls/tokens.

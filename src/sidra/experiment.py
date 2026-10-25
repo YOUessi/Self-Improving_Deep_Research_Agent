@@ -65,7 +65,7 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
     fixture_description = (dataset_dir / "README.md").read_text(encoding="utf-8") \
         if (dataset_dir / "README.md").exists() else ""
     synthetic = "synthetic smoke fixture" in fixture_description.lower()
-    if policy.name.startswith("fixture_"):
+    if "fixture_" in policy.name:
         label = "smoke_fixture"
     elif synthetic:
         label = "pretrained_model_on_synthetic_smoke"
@@ -83,6 +83,9 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         "synthetic_fixture": bool(synthetic),
         "git_commit": git_sha(), "agent_config": asdict(agent.config),
         "sample_count": len(selected), "no_gpu_training_claimed": True,
+        "agent_roles": ["planner", "researcher", "solver", "evidence_audit"]
+                       if policy.name.startswith("multi_role_") else ["single_policy"],
+        "minimum_distinct_citations": getattr(policy, "min_citations", None),
         "caution": "Synthetic fixture results cannot show generalization or RSI gains." if synthetic
                     else "This is a pretrained baseline, not post-training or RSI.",
     }

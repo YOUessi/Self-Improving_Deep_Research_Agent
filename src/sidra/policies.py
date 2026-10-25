@@ -127,10 +127,14 @@ class OpenAICompatiblePolicy:
         self.max_tokens = max_tokens
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
+        return self.decide_with_system(question, observations, remaining, SYSTEM)
+
+    def decide_with_system(self, question: str, observations: list[dict],
+                           remaining: int, system_prompt: str) -> Action:
         # All previous observations, including read text, were obtained through audited tools.
         user = {"question": question, "remaining_steps": remaining, "tool_history": observations}
         body = {"model": self.model, "messages": [
-            {"role": "system", "content": SYSTEM},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
         ], "temperature": 0.0, "max_tokens": self.max_tokens}
         key = os.getenv(self.key_env, "")

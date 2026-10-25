@@ -1,0 +1,129 @@
+{
+  "verified_date": "2026-10-26",
+  "source": "official ModelScope Qwen models",
+  "source_verification": "scripts/verify_modelscope_models.py expected SHA256 and byte counts",
+  "host": "Tang",
+  "checkpoint_validation_only": true,
+  "model_inference_tested": false,
+  "models": [
+    {
+      "model": "Qwen3-8B",
+      "base_dir": "/home/you/models/Qwen3-8B",
+      "sha256_checked": true,
+      "ready": true,
+      "missing_metadata": [],
+      "incomplete_files": [],
+      "files": [
+        {
+          "file": "model-00001-of-00005.safetensors",
+          "present": true,
+          "expected_bytes": 3996250744,
+          "actual_bytes": 3996250744,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model-00002-of-00005.safetensors",
+          "present": true,
+          "expected_bytes": 3993160032,
+          "actual_bytes": 3993160032,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model-00003-of-00005.safetensors",
+          "present": true,
+          "expected_bytes": 3959604768,
+          "actual_bytes": 3959604768,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model-00004-of-00005.safetensors",
+          "present": true,
+          "expected_bytes": 3187841392,
+          "actual_bytes": 3187841392,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model-00005-of-00005.safetensors",
+          "present": true,
+          "expected_bytes": 1244659840,
+          "actual_bytes": 1244659840,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model.safetensors.index.json",
+          "present": true,
+          "expected_bytes": 32878,
+          "actual_bytes": 32878,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "tokenizer.json",
+          "present": true,
+          "expected_bytes": 11422654,
+          "actual_bytes": 11422654,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "model": "Qwen3-8B-AWQ",
+      "base_dir": "/home/you/models/Qwen3-8B-AWQ",
+      "sha256_checked": true,
+      "ready": true,
+      "missing_metadata": [],
+      "incomplete_files": [],
+      "files": [
+        {
+          "file": "model-00001-of-00002.safetensors",
+          "present": true,
+          "expected_bytes": 4853922024,
+          "actual_bytes": 4853922024,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model-00002-of-00002.safetensors",
+          "present": true,
+          "expected_bytes": 1244659840,
+          "actual_bytes": 1244659840,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "model.safetensors.index.json",
+          "present": true,
+          "expected_bytes": 74029,
+          "actual_bytes": 74029,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        },
+        {
+          "file": "tokenizer.json",
+          "present": true,
+          "expected_bytes": 11422654,
+          "actual_bytes": 11422654,
+          "size_match": true,
+          "hash_match": true,
+          "ok": true
+        }
+      ]
+    }
+  ]
+}
