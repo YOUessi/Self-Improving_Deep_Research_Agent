@@ -13,8 +13,8 @@ from scripts.m7_evidence_diagnostics import (
 
 
 def episode(*,qid="q1",answer="Paris",citations=("d1","d2"),
-            end="finish",first="Paris is the capital of France",
-            second="France is a European country",read2=True,
+            end="finish",first="Paris is the capital of France.",
+            second="France is a European country.",read2=True,
             search2=True):
     steps=[
         {"action":{"kind":"search","query":"France"},
