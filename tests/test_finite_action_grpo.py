@@ -182,3 +182,36 @@ def test_evaluator_manifest_model_name_is_json_serializable(tmp_path):
     assert manifest["model_id"]=="toy/fake-base"
     assert manifest["adapter_path"]=="toy/fake-lora"
     assert manifest["no_gpu_training_claimed"] is True
+
+
+def test_terminal_action_catalog_excludes_tool_calls_on_last_step():
+    obs=[{"kind":"search","query":"Find Bridge",
+          "hits":[{"doc_id":"docA","title":"Bridge","snippet":"Bridge site"}]},
+         {"kind":"read","doc_id":"docA","title":"Bridge",
+          "text":"Bridge site was built by Riverhaven in 1985."}]
+    result=build_legal_actions("When was the bridge built?",obs,
+                               remaining=1,max_tool_calls=5)
+    assert result
+    assert all(a.kind=="finish" for a in result)
+    assert any(a.answer for a in result)
+    assert all(not a.citations or set(a.citations)=={"docA"} for a in result)
+    no_read=build_legal_actions("What is it?",[],remaining=1)
+    assert len(no_read)==1 and no_read[0].kind=="finish"
+    assert no_read[0].answer==""
+    with pytest.raises(ValueError,match="remaining"):
+        build_legal_actions("What?",[],remaining=0)
+
+
+def test_catalog_prevents_search_or_read_after_tool_budget_hit():
+    obs=[{"kind":"search","query":"The bridge",
+          "hits":[{"doc_id":"d","title":"Bridge","snippet":"Bridge"}]},
+         {"kind":"read","doc_id":"d","title":"Bridge",
+          "text":"Bridge was built in 1985 by Riverhaven."}]
+    maxed=build_legal_actions("When was bridge built?",obs,
+                              remaining=3,max_tool_calls=2)
+    assert all(a.kind=="finish" for a in maxed)
+    notmax=build_legal_actions("When was bridge built?",obs,
+                               remaining=3,max_tool_calls=3)
+    assert any(a.kind=="search" for a in notmax)
+    with pytest.raises(ValueError,match="tool budget"):
+        build_legal_actions("When?",obs,max_tool_calls=0)
