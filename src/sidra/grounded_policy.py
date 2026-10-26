@@ -24,6 +24,7 @@ class GroundedPolicy:
         self.min_reads = min_reads
         self.revise_citations = revise_citations
         self.model_name = getattr(base, "model_name", getattr(base, "model", None))
+        self.adapter_path = getattr(base, "adapter_path", None)
         self.last_role = ""
         self.last_verification = None
         self.last_model_calls = 0
