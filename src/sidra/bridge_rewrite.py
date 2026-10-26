@@ -8,6 +8,8 @@ forge a READ ID, or synthesize a FINISH answer.
 """
 from __future__ import annotations
 
+import re
+
 from sidra.bridge import normalize
 from sidra.next_hop_policy import NextHopPlan
 from sidra.retrieval import tokenize
@@ -35,7 +37,9 @@ def relation_tail(question:str,bridge_query:str,first_read_title:str, *,
     """
     if not 1<=max_tokens<=4:
         raise ValueError("max_tokens must be 1..4")
-    toks=tokenize(question)
+    # BM25 tokenizer removes stop words such as "what"; for this task we
+    # MUST preserve interrogatives before deciding where the relation starts.
+    toks=re.findall(r"[a-z][a-z0-9'-]*",question.casefold())
     indices=[i for i,t in enumerate(toks) if t in _WH_WORDS]
     tail=toks[indices[-1]+1:] if indices else toks[-7:]
     excluded=set(tokenize(bridge_query))|set(tokenize(first_read_title))
