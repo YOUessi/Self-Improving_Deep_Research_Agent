@@ -156,3 +156,19 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Slow default PyPI `z3-solver` download was mitigated using Aliyun mirror; wheel SHA-256 was checked against PyPI metadata (P-017 original).
 - `pip install vllm==0.31.0` was resumed with Aliyun as the explicit index to complete dependencies; package import, CUDA compatibility and Qwen3-AWQ serve are **not yet validated**. The large optional dependency closure can take longer than the base wheel.
 - Do not silently consider a `pip --no-deps` wheel install to mean a working inference environment. Check `pip check`, `import vllm` and actual inference separately.
+
+
+## P-018 — Real multi-role evaluation worsened on first two HotpotQA examples (OPEN)
+
+- **Evidence:** E-005 vs E-006 at GitHub code SHA `62e3874013d38c90b8677e9d9683b5598787fd52`; Qwen3-8B BF16/CPU offload, identical questions, prompt budget, top-k search and tool limits.
+- **Observed:** single-agent answers 2/2 exactly correct but verified 0/2; multi-role answers 0/2 and verified 0/2, with more model calls and higher latency.
+- **Failure 1:** Researcher third step returned no parseable action JSON; runner correctly terminated with a logged error.
+- **Failure 2:** Researcher repeated a `read(doc_id)` that had already been performed, then attempted early finish; the role guard enforced abstention because two distinct sources had not been collected.
+- **Hypotheses:** role instructions conflict with structured action schema, no recovery after malformed action, no deduplication of read actions, evidence gating applied too late.
+- **Status:** **OPEN**. Preserve failed traces. Implement general structural fixes (not gold-driven answer patches), regression tests, and a new experiment on disjoint frozen dev question IDs. No performance gain may be claimed from this first multi-role version.
+
+## P-019 — First multi-role launch had unbound shell variable (resolved)
+
+- **Observed:** first Tang shell attempt used `set -u` with an unset `sha` variable; it exited immediately before launching a model or writing results.
+- **Correction:** explicitly set `sha=62e3874013d38c90b8677e9d9683b5598787fd52` in the command. The corrected run produced E-006.
+- **Verification:** first command had no generated checkpoint/evaluation artifacts; second completed with saved JSONL and manifest at the pinned SHA.
