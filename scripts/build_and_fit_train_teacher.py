@@ -271,28 +271,90 @@ def _encode_teacher_rows(tokenizer,rows:list[dict], *,
             "prompt_ids":ids,
             "legal_ids":token_ids,
             "target":int(r["target_index"]),
+            "target_kind":actions[int(r["target_index"])].kind,
         })
     return usable,skipped
 
 
+def choose_balanced_teacher_actions(rows:list[dict], *,seed:int,
+                                    steps:int)->list[dict]:
+    """Interleave Search, Read, Finish actions so short pilots never see SEARCH-only.
+
+    The previous shallow round-robin-by-question ordering selected the first
+    action of 96 different examples, **all initial SEARCH**. That did not train
+    the documented multi-turn READ/FINISH capabilities and increased DEV tool
+    calls. This sampler allocates labels across all stages, then across distinct
+    TRAIN questions within a stage. Seeded and train-only.
+    """
+    from collections import defaultdict
+    if steps<3 or len(rows)<steps:
+        raise ValueError("balanced training requires >=3 steps and enough labels")
+    kinds=("search","read","finish")
+    streams={}
+    rng=random.Random(seed)
+    for kind in kinds:
+        per_q=defaultdict(list)
+        for row in rows:
+            if row.get("target_kind")==kind:
+                per_q[str(row["question_id"])].append(row)
+        if not per_q:raise ValueError(f"missing required teacher action kind: {kind}")
+        qids=sorted(per_q)
+        rng.shuffle(qids)
+        ordered=[]
+        for depth in range(max(len(x) for x in per_q.values())):
+            for qid in qids:
+                if depth<len(per_q[qid]):
+                    ordered.append(per_q[qid][depth])
+        streams[kind]=ordered
+    picked=[]
+    cursors={kind:0 for kind in kinds}
+    for i in range(steps):
+        preference=kinds[i%len(kinds)]
+        candidates=[preference]+[x for x in kinds if x!=preference]
+        kind=next((x for x in candidates
+                   if cursors[x]<len(streams[x])),None)
+        if kind is None:raise RuntimeError("not enough distinct teacher actions")
+        picked.append(streams[kind][cursors[kind]])
+        cursors[kind]+=1
+    if steps>=6 and any(sum(x["target_kind"]==k for x in picked)<2
+                        for k in kinds):
+        raise RuntimeError("supervision accidentally omitted a tool stage")
+    return picked
+
+
 def evaluate_teacher_label_fit(model,examples:list[dict])->dict:
     import torch
+    from collections import defaultdict
     model.eval()
     exact=0
     loss_sum=0.0
+    per_kind=defaultdict(lambda:{"n":0,"correct":0,"loss":0.0})
     with torch.no_grad():
         for x in examples:
             ids=torch.tensor([x["prompt_ids"]],device=model.device,dtype=torch.long)
             logits=model(input_ids=ids).logits[0,-1,:].float()
             legal=logits[torch.tensor(x["legal_ids"],device=ids.device)]
             lp=torch.log_softmax(legal,dim=-1)
-            exact+=int(int(torch.argmax(legal))==x["target"])
-            loss_sum+=float(-lp[x["target"]])
+            correct=int(int(torch.argmax(legal))==x["target"])
+            loss=float(-lp[x["target"]])
+            exact+=correct
+            loss_sum+=loss
+            group=per_kind[x.get("target_kind","unknown")]
+            group["n"]+=1
+            group["correct"]+=correct
+            group["loss"]+=loss
     return {
         "n":len(examples),
         "teacher_action_accuracy":exact/max(1,len(examples)),
         "mean_masked_cross_entropy":loss_sum/max(1,len(examples)),
+        "by_kind":{
+            kind:{"n":n["n"],
+                  "accuracy":n["correct"]/n["n"],
+                  "masked_cross_entropy":n["loss"]/n["n"]}
+            for kind,n in sorted(per_kind.items())
+        },
     }
+
 
 
 def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
@@ -329,18 +391,9 @@ def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
     validation,skip_val=_encode_teacher_rows(tokenizer,val,config=cfg)
     if len(train)<steps or not validation:
         raise ValueError("insufficient fit/validation teacher actions after tokenization")
-    # Balanced deterministic per-Q task supervision so a single long teacher
-    # trajectory does not overwhelm the adapter.
-    from collections import defaultdict
-    groups=defaultdict(list)
-    for row in train:groups[row["question_id"]].append(row)
-    group_ids=list(groups)
-    random.shuffle(group_ids)
-    order=[]
-    for depth in range(max(map(len,groups.values()))):
-        for qid in group_ids:
-            if depth<len(groups[qid]):order.append(groups[qid][depth])
-    selected=order[:steps]
+    # Stratify by tool stage *before* balancing by TRAIN question.
+    # A short pilot must include real SEARCH, READ and FINISH supervision.
+    selected=choose_balanced_teacher_actions(train,seed=seed,steps=steps)
     base=AutoModelForCausalLM.from_pretrained(
         str(model_path),local_files_only=True,dtype=torch.bfloat16,
         attn_implementation="sdpa").to("cuda")
@@ -389,6 +442,7 @@ def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
         "heldout_train_teacher_actions_available":len(validation),
         "optimizer_updates":len(losses),
         "optimizer_action_label_targets":len(losses),
+        "supervision_action_kind_counts":dict(Counter(x["target_kind"] for x in selected)),
         "tool_observation_token_targets":0,
         "before_heldout_train_teacher_action":pre,
         "after_heldout_train_teacher_action":post,
