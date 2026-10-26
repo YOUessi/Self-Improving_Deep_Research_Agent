@@ -56,7 +56,7 @@ def select_train_only(questions,dev_ids:set[str],*,seed:int,n:int):
 
 
 def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
-                ctx:int,max_tool_calls:int):
+                ctx:int,max_tool_calls:int,selection_mode:str="sample"):
     import torch
     from transformers import AutoModelForCausalLM,AutoTokenizer
     from peft import PeftModel
@@ -77,7 +77,8 @@ def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
         cfg=FiniteActionConfig(max_prompt_tokens=ctx),
         adapter_path=str(adapter_path),
         model_name=str(model_path),
-        max_tool_calls=max_tool_calls)
+        max_tool_calls=max_tool_calls,
+        selection_mode=selection_mode)
 
 
 def finite_action_update(model,episodes:list[dict],optimizer, *,
@@ -94,6 +95,8 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
         for a in ep["action_samples"]:
             if a["action_token_targets"]!=1 or a["tool_observation_targets"]!=0:
                 raise ValueError("label leakage into loss mask")
+            if a.get("selection_mode")!="sample":
+                raise ValueError("off-policy: greedy action cannot train GRPO")
             if a["selected_token_id"]!=a["legal_choice_token_ids"][a["selected_index"]]:
                 raise ValueError("choice masking or selected ID mismatch")
             if not math.isfinite(a["sampled_logprob"]):
@@ -272,10 +275,11 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
 
 def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
              out:Path,limit:int,seed:int,max_steps:int,max_tool_calls:int,
-             max_context:int,split:str)->dict:
+             max_context:int,split:str,greedy:bool=False)->dict:
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=False,ctx=max_context,
-                       max_tool_calls=max_tool_calls)
+                       max_tool_calls=max_tool_calls,
+                       selection_mode="greedy" if greedy else "sample")
     config=AgentConfig(max_steps=max_steps,max_tool_calls=max_tool_calls,
                        search_top_k=3)
     summary=evaluate(data,split,policy,out,config=config,
@@ -306,6 +310,8 @@ def main():
     t.add_argument("--learning-rate",type=float,default=1e-5)
     e.add_argument("--split",choices=["train","dev","test"],default="dev")
     e.add_argument("--limit",type=int,default=32)
+    e.add_argument("--greedy",action="store_true",
+                   help="Deterministic argmax over legal action choices, NOT an on-policy sampler")
     args=p.parse_args()
     common=dict(data=args.data,model_path=args.model,adapter_path=args.adapter,
                 out=args.out,seed=args.seed,max_steps=args.max_steps,
@@ -316,7 +322,8 @@ def main():
               updates=args.updates,learning_rate=args.learning_rate)
     else:
         print(json.dumps(run_eval(
-            **common,limit=args.limit,split=args.split),indent=2))
+            **common,limit=args.limit,split=args.split,
+            greedy=args.greedy),indent=2))
 
 
 if __name__=="__main__":
