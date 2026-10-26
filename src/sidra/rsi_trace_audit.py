@@ -88,7 +88,15 @@ def audit_tool_trace(
                 continue
             return failure("missing_action_on_nonerror_step")
         try:
-            action=Action.from_dict(entry["action"])
+            raw=entry["action"]
+            if not isinstance(raw,dict):
+                return failure("malformed_action_record")
+            # SearchAgent's in-memory dataclass.asdict() retains tuple-valued
+            # citations, while persisted JSONL contains lists. Both encodings
+            # are semantically identical; reject other types.
+            if isinstance(raw.get("citations"),tuple):
+                raw={**raw,"citations":list(raw["citations"])}
+            action=Action.from_dict(raw)
         except (TypeError,ValueError,AttributeError,KeyError):
             return failure("malformed_action_record")
         if action.kind == "finish":
