@@ -31,6 +31,7 @@ from sidra.experiment import evaluate
 from sidra.finite_action import FiniteActionPolicy,FiniteActionConfig,logprob_of_action
 from sidra.io import load_dataset,save_jsonl
 from sidra.train_reward import score_train_rollout,group_normalized_advantages
+from sidra.step_credit import assign_step_evidence_credit
 
 
 def _sha256(path:Path)->str:
@@ -124,7 +125,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
     """One gradient update from fresh trajectories, no replay after update."""
     import torch
     if not 0<clip<1:raise ValueError("invalid PPO clip")
-    if credit_mode not in {"episode_total","stage_credit_v1"}:
+    if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2"}:
         raise ValueError("unknown TRAIN credit mode")
     active=[]
     for ep in episodes:
@@ -154,6 +155,14 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
                 adv=float(stage_adv[kind])
                 if not math.isfinite(adv):
                     raise ValueError("nonfinite stage advantage")
+            elif credit_mode=="step_evidence_delta_v2":
+                # Only post-rollout TRAIN gold scorer may attach this number.
+                # The policy never sees it in prompts or legal action catalogs.
+                if "step_credit_advantage" not in a:
+                    raise ValueError("TRAIN per-action evidence credit absent")
+                adv=float(a["step_credit_advantage"])
+                if not math.isfinite(adv):
+                    raise ValueError("nonfinite TRAIN step credit")
             if abs(adv)<1e-8:continue
             active.append((adv,a))
     if not active:
@@ -220,7 +229,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
     if generations<2:raise ValueError("need >=2 generations per task")
-    if credit_mode not in {"episode_total","stage_credit_v1"}:
+    if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2"}:
         raise ValueError("unknown TRAIN credit mode")
     import torch,transformers,peft
     docs,questions=load_dataset(data)
@@ -282,6 +291,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         batch=selected[iteration*groups:(iteration+1)*groups]
         trajectories=[]
         varying=0
+        step_credit_reports=[]
         for i,q in enumerate(batch):
             versions=[]
             for g in range(generations):
@@ -308,6 +318,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                 ep["advantage"]=a
             if credit_mode=="stage_credit_v1":
                 stage_group_advantages(versions)
+            if credit_mode=="step_evidence_delta_v2":
+                step_credit_reports.append(assign_step_evidence_credit(versions,q))
             varying+=int(any(abs(x)>1e-6 for x in adv))
             trajectories.extend(versions)
             print("FINITE_ONLINE_GROUP",iteration,i+1,len(batch),
@@ -318,6 +330,24 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
             model,trajectories,optimizer,credit_mode=credit_mode)
         if report["updated"] is False:
             raise RuntimeError("All action groups constant; not a valid GRPO update")
+        if credit_mode=="step_evidence_delta_v2":
+            report["step_evidence_audit"]={
+                "groups":len(step_credit_reports),
+                "nonzero_credited_actions":sum(
+                    x["credited_actions"] for x in step_credit_reports),
+                "per_kind":{
+                    kind:{
+                        "actions":sum(x["by_kind"][kind]["actions"]
+                                      for x in step_credit_reports),
+                        "positive_raw":sum(x["by_kind"][kind]["positive_raw"]
+                                            for x in step_credit_reports),
+                        "nonzero_advantages":sum(
+                            x["by_kind"][kind]["nonzero_advantages"]
+                            for x in step_credit_reports),
+                    } for kind in ("search","read","finish")},
+                "gold_used_in_policy_or_legal_catalog":False,
+                "source_split":"train",
+            }
         report.update({
             "iteration":iteration,
             "episodes":len(trajectories),"nonconstant_groups":varying,
@@ -441,10 +471,11 @@ def main():
     t.add_argument("--generations",type=int,default=4)
     t.add_argument("--updates",type=int,default=1)
     t.add_argument("--learning-rate",type=float,default=1e-5)
-    t.add_argument("--credit-mode",choices=["episode_total","stage_credit_v1"],
+    t.add_argument("--credit-mode",choices=["episode_total","stage_credit_v1",
+                                            "step_evidence_delta_v2"],
                    default="episode_total",
-                   help="Stage-conditioned TRAIN reward is an experimental "
-                        "custom on-policy policy gradient, NOT TRL native GRPO.")
+                   help="Stage/step TRAIN rewards are experimental custom on-policy "
+                        "group-relative policy gradients, NOT native TRL GRPO.")
     e.add_argument("--split",choices=["train","dev"],default="dev")
     e.add_argument("--limit",type=int,default=32)
     e.add_argument("--greedy",action="store_true",
