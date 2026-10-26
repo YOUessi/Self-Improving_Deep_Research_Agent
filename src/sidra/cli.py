@@ -31,6 +31,8 @@ def main() -> None:
                     help="Skip this many sorted items within the frozen split")
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--max-new-tokens", type=int, default=280)
+    ev.add_argument("--constrain-actions", action="store_true",
+                    help="For compatible OpenAI/vLLM endpoints: enforce strict action JSON schema")
     ev.add_argument("--offload-gpu-gib", type=int, default=0,
                     help="Opt-in BF16 GPU/CPU offload cap; 0 means GPU-only")
     ev.add_argument("--offload-dir", type=str, default=None)
@@ -62,7 +64,9 @@ def main() -> None:
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
-        policy = OpenAICompatiblePolicy(args.endpoint, args.model, key_env=args.key_env)
+        policy = OpenAICompatiblePolicy(
+            args.endpoint, args.model, key_env=args.key_env,
+            constrain_actions=args.constrain_actions)
     if args.policy.startswith("multi-"):
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
