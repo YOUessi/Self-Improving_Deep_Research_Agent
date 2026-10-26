@@ -44,9 +44,13 @@ def git_sha() -> str:
 
 
 def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
-             config: AgentConfig | None = None, limit: int = 0, seed: int = 42) -> dict:
+             config: AgentConfig | None = None, limit: int = 0, seed: int = 42,
+             offset: int = 0) -> dict:
     documents, questions = load_dataset(dataset_dir)
     selected = sorted((q for q in questions if q.split == split), key=lambda q: q.question_id)
+    if offset < 0:
+        raise ValueError("offset must be non-negative")
+    selected = selected[offset:]
     if limit:
         selected = selected[:limit]
     if not selected:
@@ -82,7 +86,8 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         "generation_max_new_tokens": getattr(policy, "max_new_tokens", None),
         "synthetic_fixture": bool(synthetic),
         "git_commit": git_sha(), "agent_config": asdict(agent.config),
-        "sample_count": len(selected), "no_gpu_training_claimed": True,
+        "sample_count": len(selected), "evaluation_offset": offset,
+        "no_gpu_training_claimed": True,
         "agent_roles": ["planner", "researcher", "solver", "evidence_audit"]
                        if policy.name.startswith("multi_role_") else ["single_policy"],
         "minimum_distinct_citations": getattr(policy, "min_citations", None),
