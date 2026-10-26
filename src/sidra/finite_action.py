@@ -37,7 +37,7 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
-        if self.answer_proposer not in {"legacy","v2"}:
+        if self.answer_proposer not in {"legacy","v2","v3"}:
             raise ValueError("unknown answer proposer; use legacy or v2")
 
 
@@ -151,14 +151,23 @@ def build_legal_actions(question:str,observations:list[dict],
     if read:
         visible=list(read.values())
         # Use the union of *read* sources, not predicted supporting facts.
-        citations=tuple(read.keys())[-3:]
-        # Compare V1 versus V2 only with explicitly versioned evaluation
-        # manifests. Both take ONLY model-visible tool observations and question.
-        proposer=(candidate_spans_v2 if cfg.answer_proposer=="v2" else _candidate_spans)
-        for o in reversed(visible[-2:]):
-            for a in proposer(str(o.get("text","")),question,
-                              cfg.max_text_candidates):
-                actions.append(Action(kind="finish",answer=a,citations=citations))
+        # V3 evidence-first policy: at least two distinct documents must have
+        # been ACTUALLY read before producing a factual answer. This is a
+        # structural, observation-only rule, not a prediction of gold support.
+        # Its mask changes the policy class and must be A/B evaluated separately.
+        finish_allowed=(cfg.answer_proposer!="v3" or len(read)>=2)
+        citations=(tuple(read.keys()) if cfg.answer_proposer=="v3"
+                   else tuple(read.keys())[-3:])
+        # V2/V3 share the nonoracle lexical answer proposer. V3 differs only
+        # by the structural evidence gate, complete visible citation set, and
+        # preserved answer-choice capacity under max_candidates.
+        proposer=(candidate_spans_v2 if cfg.answer_proposer in {"v2","v3"}
+                  else _candidate_spans)
+        if finish_allowed:
+            for o in reversed(visible[-2:]):
+                for a in proposer(str(o.get("text","")),question,
+                                  cfg.max_text_candidates):
+                    actions.append(Action(kind="finish",answer=a,citations=citations))
     # Abstain is always legal; a model cannot cite without reading.
     actions.append(Action(kind="finish",answer="",citations=()))
     # Keep stable order with deduplication, including the mandatory abstain.
@@ -168,7 +177,31 @@ def build_legal_actions(question:str,observations:list[dict],
         if key not in unique:
             unique.add(key)
             result.append(a)
-    if len(result)>cfg.max_candidates:
+    if cfg.answer_proposer=="v3":
+        # Old catalog truncated its tail before the model saw any FINISH
+        # candidates. Reserve space for up to four fact-bearing options,
+        # without ever admitting an unseen document or an illegal tool action.
+        # Capacity is at most nine including the last-resort abstention.
+        factual=[a for a in result if a.kind=="finish" and a.answer]
+        tools=[a for a in result if a.kind in {"search","read"}]
+        budget=cfg.max_candidates-1
+        finish=factual[:min(4,budget)]
+        remaining_slots=budget-len(finish)
+        read_actions=[a for a in tools if a.kind=="read"]
+        search_actions=[a for a in tools if a.kind=="search"]
+        # A first-hop read is more useful than repeating an earlier search;
+        # retain independent legal bridge searches when there is capacity.
+        keep=[]
+        if remaining_slots and read_actions:
+            keep.extend(read_actions[:min(2,remaining_slots)])
+        for a in search_actions:
+            if len(keep)>=remaining_slots:break
+            keep.append(a)
+        for a in read_actions:
+            if len(keep)>=remaining_slots:break
+            if a not in keep:keep.append(a)
+        result=keep+finish+[Action(kind="finish",answer="",citations=())]
+    elif len(result)>cfg.max_candidates:
         # Preserve abstain as the last option even if the catalog is crowded.
         result=result[:cfg.max_candidates-1]+[Action(kind="finish",answer="",citations=())]
     if not 1<=len(result)<=cfg.max_candidates:
