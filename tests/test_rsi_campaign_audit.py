@@ -47,10 +47,13 @@ def make_candidates(tmp_path,queue_paths,*,cross_generation_duplicate=False):
               (queue/"CHALLENGER_INPUT.jsonl").read_text().splitlines()]
         records=[]
         for idx,r in enumerate(rows):
-            proposal=(
-                "Which maritime archive reports the official opening "
-                f"of research facility number {generation*100+idx}?"
-            )
+            unique_questions=[
+                "Which maritime archive reports the first launch of the Aurora polar research vessel?",
+                "What independent geological survey established the age of the Eastern Bridge foundation?",
+                "How did Renaissance patrons fund the restoration of the White Tower sculpture?",
+                "Which original municipal decree authorized the Amber Observatory ceremony?",
+            ]
+            proposal=unique_questions[(generation-1)*2+idx]
             if cross_generation_duplicate and repeated is not None:
                 proposal=repeated
             repeated=proposal if repeated is None else repeated
