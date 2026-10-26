@@ -217,7 +217,9 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           groups_per_update:int=6,generations:int=4,
           max_new_tokens:int=120,max_context_tokens:int=1536,
           max_steps:int=6,max_tool_calls:int=5,
-          learning_rate:float=1.0e-5)->dict:
+          learning_rate:float=1.0e-5,
+          recover_unread_citations:bool=False,
+          max_tool_call_budget:int=0)->dict:
     if out.exists():raise FileExistsError(out)
     if min(max_updates,groups_per_update,generations,max_new_tokens,max_steps,
            max_tool_calls)<1:raise ValueError("invalid training limits")
@@ -232,8 +234,11 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     eligible=select_train(qs,dev_ids,seed=seed,
                           max_questions=max_updates*groups_per_update)
     lookup={d.doc_id:d for d in docs}
+    if max_tool_call_budget:
+        max_tool_calls=max_tool_call_budget
     cfg=AgentConfig(max_steps=max_steps,max_tool_calls=max_tool_calls,
-                    search_top_k=3)
+                    search_top_k=3,
+                    recover_unread_citations=recover_unread_citations)
     tokens=AutoTokenizer.from_pretrained(str(model_path),local_files_only=True)
     base=AutoModelForCausalLM.from_pretrained(
         str(model_path),local_files_only=True,dtype=torch.bfloat16,
@@ -340,6 +345,9 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         "update_reports":summary_updates,
         "max_context_tokens":max_context_tokens,
         "max_new_tokens":max_new_tokens,
+        "recover_unread_citations":recover_unread_citations,
+        "agent_max_steps":max_steps,
+        "agent_max_tool_calls":max_tool_calls,
         "versions":{"torch":torch.__version__,"transformers":transformers.__version__,
                     "trl":trl.__version__,"peft":peft.__version__},
         "training_seconds":round(time.monotonic()-started,2),
@@ -369,12 +377,18 @@ def main():
     p.add_argument("--generations",type=int,default=4)
     p.add_argument("--max-new-tokens",type=int,default=120)
     p.add_argument("--max-context-tokens",type=int,default=1536)
+    p.add_argument("--recover-unread-citations",action="store_true")
+    p.add_argument("--max-steps",type=int,default=6)
+    p.add_argument("--max-tool-calls",type=int,default=5)
     args=p.parse_args()
     train(data=args.train_data,dev_manifest=args.dev_manifest,model_path=args.model,
           adapter_path=args.adapter,out=args.out,seed=args.seed,
           max_updates=args.updates,groups_per_update=args.groups_per_update,
           generations=args.generations,max_new_tokens=args.max_new_tokens,
-          max_context_tokens=args.max_context_tokens)
+          max_context_tokens=args.max_context_tokens,
+          max_steps=args.max_steps,
+          max_tool_calls=args.max_tool_calls,
+          recover_unread_citations=args.recover_unread_citations)
 
 
 if __name__=="__main__":
