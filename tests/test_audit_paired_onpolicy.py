@@ -178,3 +178,11 @@ def test_reject_unbounded_bootstrap_and_nonfinite_metrics(tmp_path):
     _set_row(new,0,token_f1=float("nan"))
     with pytest.raises(ValueError,match="nonfinite"):
         audit_pair(old,new,tmp_path/"report.json",bootstrap=200)
+
+
+def test_mismatched_answer_proposer_version_blocks_paired_claim(tmp_path):
+    old,new=_make_runs(tmp_path,finite=True)
+    _set_policy(old,answer_proposer="legacy")
+    _set_policy(new,answer_proposer="v2")
+    with pytest.raises(ValueError,match="answer_proposer"):
+        audit_pair(old,new,tmp_path/"audit.json",bootstrap=200)
