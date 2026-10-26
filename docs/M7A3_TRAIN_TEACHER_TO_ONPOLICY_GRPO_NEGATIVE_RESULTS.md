@@ -20,7 +20,7 @@ Unlike synthetic/Oracle-policy scores, each teacher path is executed through the
 | Teacher attempts rejected as incomplete/abstained | 697 |
 | Generation wall time | 11.944 s |
 
-Data and full local audit: Tang `~/experiments/sidra_m7/data/teacher1024_v2_seed43_26e00f26c/`, SHA256 TRAIN question `53f8b07853f451dc8f7854cef04288de9f7637f6c1b8365fcbee3de2d0340ee20a8` (see actual manifest for authoritative SHA), original frozen DEV manifest `3f0c494cca8b44cfef90c78d4d5b1fbb4158dc7387ed0f24316a0a265471d947`. **NOTE:** only the manifest is authoritative for SHA; do not use human-typed SHA transcriptions.
+Data and full local audit: Tang `~/experiments/sidra_m7/data/teacher1024_v2_seed43_26e00f26c/`, SHA256 TRAIN question `53f8b07853f451dc8f7854cef04288de9f7637f6c1b8365fcbee2d0340ee20a8`, original frozen DEV manifest `3f0c494cca8b44cfef90c78d4d5b1fbb4158dc7387ed0f24316a0a265471d947`. The source files and the frozen manifest were hashed on Tang before running experiments.
 
 **Interpretation:** 327/1024 means a TRAIN-aware *oracle teacher can generate a strictly successful legal path* for that many source questions. It is NOT a nonoracle student's multi-hop accuracy, a model training result or GRPO.
 
