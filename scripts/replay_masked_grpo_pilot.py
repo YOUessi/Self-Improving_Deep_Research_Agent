@@ -66,6 +66,22 @@ def validate_train_replay(records:list[dict], dev_manifest:Path)->list[list[dict
     return groups
 
 
+def validate_train_membership(groups:list[list[dict]],train_dataset:Path)->str:
+    from sidra.io import load_dataset
+    _docs,questions=load_dataset(train_dataset)
+    if any(q.split!="train" for q in questions):
+        raise ValueError("non-TRAIN split in policy update source")
+    qmap={q.question_id:q for q in questions}
+    if len(qmap)!=len(questions):
+        raise ValueError("duplicate TRAIN question IDs")
+    for g in groups:
+        for record in g:
+            q=qmap.get(record["question_id"])
+            if q is None or record["trace"]["question"]!=q.question:
+                raise ValueError("replay not matched to an original TRAIN question")
+    return sha256_file(train_dataset/"questions.jsonl")
+
+
 def clip_policy_loss(logp_new,logp_old,advantage:float,epsilon:float=0.2):
     """Token-level PPO/GRPO clipped surrogate; only assistant tokens input."""
     import torch
@@ -118,7 +134,7 @@ def tokenized_assistant_action(tokenizer,record:dict,*,max_length:int=2048):
     return p+c,len(p),len(c)
 
 
-def run(rollouts:Path,dev_manifest:Path,model_dir:Path,
+def run(rollouts:Path,dev_manifest:Path,train_dataset:Path,model_dir:Path,
         adapter_dir:Path,out:Path, *,
         seed:int=43,max_events:int=28,
         max_length:int=2048,lr:float=8e-6,
@@ -135,6 +151,7 @@ def run(rollouts:Path,dev_manifest:Path,model_dir:Path,
 
     records=[json.loads(line) for line in rollouts.read_text().splitlines() if line.strip()]
     groups=validate_train_replay(records,dev_manifest)
+    train_dataset_sha256=validate_train_membership(groups,train_dataset)
     # Only groups with nonzero GROUP rewards can supply a relative gradient.
     varying=[g for g in groups if any(abs(float(r["group_advantage"]))>1e-6 for r in g)]
     if not varying:raise ValueError("all TRAIN groups have constant rewards: abort GRPO replay")
@@ -234,6 +251,7 @@ def run(rollouts:Path,dev_manifest:Path,model_dir:Path,
         "loss_mean":sum(scalar_losses)/len(scalar_losses),
         "loss_min":min(scalar_losses),"loss_max":max(scalar_losses),
         "source_rollout_sha256":sha256_file(rollouts),
+        "verified_train_dataset_questions_sha256":train_dataset_sha256,
         "source_adapter_sha256":source_adapter_sha,
         "saved_adapter_sha256":aftersha,
         "time_seconds":round(time.perf_counter()-beginning,3),
@@ -251,6 +269,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--rollouts",type=Path,required=True)
     p.add_argument("--dev-manifest",type=Path,required=True)
+    p.add_argument("--train-data",type=Path,required=True)
     p.add_argument("--model",type=Path,required=True)
     p.add_argument("--adapter",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
@@ -259,7 +278,7 @@ def main():
     p.add_argument("--lr",type=float,default=8e-6)
     p.add_argument("--seed",type=int,default=43)
     a=p.parse_args()
-    run(a.rollouts,a.dev_manifest,a.model,a.adapter,a.out,
+    run(a.rollouts,a.dev_manifest,a.train_data,a.model,a.adapter,a.out,
         seed=a.seed,max_events=a.max_events,max_length=a.max_length,lr=a.lr)
 
 
