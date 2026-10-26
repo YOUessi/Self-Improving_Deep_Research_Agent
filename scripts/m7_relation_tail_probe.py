@@ -46,18 +46,22 @@ class RelationTailProbePolicy(ProbePolicy):
         self.rewrite_actions=0
 
     def decide(self,question,observations,remaining):
-        reads=[o for o in observations if o.get("kind")=="read"]
-        searches=[o for o in observations if o.get("kind")=="search"]
+        # Model policies must not react to evaluator/debug events. SearchAgent
+        # itself supplies ONLY search/read; filter injected metadata as defence
+        # in depth rather than allowing the tail plan to change on gold keys.
+        observed=[o for o in observations if o.get("kind") in {"search","read"}]
+        reads=[o for o in observed if o.get("kind")=="read"]
+        searches=[o for o in observed if o.get("kind")=="search"]
         if (len(reads)==1 and searches
-                and observations[-1].get("kind")=="read"):
-            plan=plan_next_hop(question,observations,remaining_steps=remaining,
+                and observed[-1].get("kind")=="read"):
+            plan=plan_next_hop(question,observed,remaining_steps=remaining,
                      remaining_tool_calls=5-len(reads)-len(searches))
-            rewritten=rewrite_billed_second_search(plan,question,observations)
+            rewritten=rewrite_billed_second_search(plan,question,observed)
             if (plan and rewritten and rewritten.action.kind=="search"
                     and rewritten.action.query!=plan.action.query):
                 self.rewrite_actions+=1
                 return rewritten.action
-        return super().decide(question,observations,remaining)
+        return super().decide(question,observed,remaining)
 
 
 def sample_train_cohorts(questions:list, *,n:int=64)->dict[str,list]:
