@@ -116,7 +116,8 @@ class OpenAICompatiblePolicy:
 
     def __init__(self, endpoint: str, model: str, *, key_env: str = "OPENAI_API_KEY",
                  timeout: int = 90, max_tokens: int = 400,
-                 constrain_actions: bool = False):
+                 constrain_actions: bool = False,
+                 constrain_document_ids: bool = False):
         if not endpoint.startswith(("http://", "https://")):
             raise ValueError("Endpoint must use http:// or https://")
         if not model.strip():
@@ -127,6 +128,9 @@ class OpenAICompatiblePolicy:
         self.timeout = timeout
         self.max_tokens = max_tokens
         self.constrain_actions = constrain_actions
+        if constrain_document_ids and not constrain_actions:
+            raise ValueError("constrain_document_ids requires constrain_actions")
+        self.constrain_document_ids = constrain_document_ids
         self.model_calls = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -193,6 +197,9 @@ class OpenAICompatiblePolicy:
                     },
                 ]
             }
+            if self.constrain_document_ids:
+                from sidra.observed_action_schema import observed_document_schema
+                schema = observed_document_schema(observations)
             body["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {

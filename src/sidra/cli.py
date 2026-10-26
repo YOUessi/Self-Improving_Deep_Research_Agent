@@ -35,6 +35,8 @@ def main() -> None:
     ev.add_argument("--max-new-tokens", type=int, default=280)
     ev.add_argument("--constrain-actions", action="store_true",
                     help="For compatible OpenAI/vLLM endpoints: enforce strict action JSON schema")
+    ev.add_argument("--constrain-document-ids", action="store_true",
+                    help="Further constrain read/citations to previously exposed/READ IDs")
     ev.add_argument("--offload-gpu-gib", type=int, default=0,
                     help="Opt-in BF16 GPU/CPU offload cap; 0 means GPU-only")
     ev.add_argument("--offload-dir", type=str, default=None)
@@ -53,6 +55,8 @@ def main() -> None:
     if args.command == "export-sft":
         print(json.dumps(build_sft_examples(args.dataset, args.traces, args.out), indent=2))
         return
+    if args.constrain_document_ids and not args.constrain_actions:
+        parser.error("--constrain-document-ids requires --constrain-actions")
     if args.limit < 0 or args.offset < 0:
         parser.error("--limit and --offset must be >= 0")
     if args.adapter_path and args.policy not in {"transformers","multi-transformers"}:
@@ -77,7 +81,8 @@ def main() -> None:
             parser.error("--endpoint and --model are required for real LLM evaluation")
         policy = OpenAICompatiblePolicy(
             args.endpoint, args.model, key_env=args.key_env,
-            constrain_actions=args.constrain_actions)
+            constrain_actions=args.constrain_actions,
+            constrain_document_ids=args.constrain_document_ids)
     if args.policy.startswith("multi-"):
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
