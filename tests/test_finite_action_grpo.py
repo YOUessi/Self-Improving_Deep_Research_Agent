@@ -156,3 +156,29 @@ def test_invalid_action_id_tokenization_is_not_silently_allowed():
             return [1,2]
     with pytest.raises(ValueError,match="one tokenizer token"):
         choice_token_ids(BadTokenizer(),4)
+
+
+def test_evaluator_manifest_model_name_is_json_serializable(tmp_path):
+    import json
+    from sidra.agent import AgentConfig
+    from sidra.experiment import evaluate
+    from sidra.io import save_jsonl
+    torch,m,tok=_toy_objects()
+    data=tmp_path/"source"
+    data.mkdir()
+    save_jsonl(data/"documents.jsonl",[
+        {"doc_id":"d1","title":"Mason Bridge","text":"Mason Bridge is in Riverhaven"}])
+    save_jsonl(data/"questions.jsonl",[
+        {"question_id":"q1","question":"Where is Mason Bridge?",
+         "gold_answer":"Riverhaven","split":"dev",
+         "supporting_doc_ids":["d1"]}])
+    policy=FiniteActionPolicy(
+        m,tok,seed=3,model_name="toy/fake-base",adapter_path="toy/fake-lora")
+    result=evaluate(
+        data,"dev",policy,tmp_path/"report",
+        config=AgentConfig(max_steps=3,max_tool_calls=2),limit=1)
+    manifest=json.loads((tmp_path/"report"/"manifest.json").read_text())
+    assert result["n"]==1
+    assert manifest["model_id"]=="toy/fake-base"
+    assert manifest["adapter_path"]=="toy/fake-lora"
+    assert manifest["no_gpu_training_claimed"] is True
