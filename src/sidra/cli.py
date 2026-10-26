@@ -26,6 +26,8 @@ def main() -> None:
     ev.add_argument("--max-steps", type=int, default=8)
     ev.add_argument("--max-tool-calls", type=int, default=7)
     ev.add_argument("--search-top-k", type=int, default=3)
+    ev.add_argument("--title-boost", type=float, default=0.0,
+                    help="Pilot-selected fixed extra BM25 title overlap weight")
     ev.add_argument("--limit", type=int, default=0)
     ev.add_argument("--offset", type=int, default=0,
                     help="Skip this many sorted items within the frozen split")
@@ -71,7 +73,9 @@ def main() -> None:
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
     config = AgentConfig(max_steps=args.max_steps,
-                         max_tool_calls=args.max_tool_calls, search_top_k=args.search_top_k)
+                         max_tool_calls=args.max_tool_calls,
+                         search_top_k=args.search_top_k,
+                         title_boost=args.title_boost)
     result = evaluate(args.dataset, args.split, policy, args.out, config,
                       args.limit, args.seed, args.offset)
     print(json.dumps(result, indent=2))
