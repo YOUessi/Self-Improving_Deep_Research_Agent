@@ -32,6 +32,12 @@ class MultiAgentPolicy:
 
     def __init__(self, model_policy, min_citations: int = 2):
         self.model_policy = model_policy
+        # Preserve the underlying model identifier in evaluation manifests.
+        # Without this, MultiAgentPolicy's wrapper obscures model provenance.
+        self.model_name = getattr(model_policy, "model_name", None)
+        if not self.model_name:
+            declared = getattr(model_policy, "model", None)
+            self.model_name = declared if isinstance(declared, str) else None
         self.audit = EvidenceAudit(min_citations)
         self.min_citations = min_citations
         self.name = "multi_role_" + model_policy.name
