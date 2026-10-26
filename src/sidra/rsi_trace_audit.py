@@ -35,6 +35,7 @@ class TraceAudit:
 def audit_tool_trace(
     question: Question, trace: AgentTrace, documents: list[Document],
     *, config: AgentConfig | None = None,
+    shared_index: BM25Index | None = None,
 ) -> TraceAudit:
     """Replay the tool evidence and validate transition/counter consistency.
 
@@ -71,7 +72,16 @@ def audit_tool_trace(
     if len(docmap)!=len(documents) or not documents:
         return failure("invalid_corpus")
     # This index takes only public tool corpus text, never gold answers/IDs.
-    index=BM25Index(documents,title_boost=config.title_boost)
+    if shared_index is None:
+        index=BM25Index(documents,title_boost=config.title_boost)
+    else:
+        # The caller may reuse an already verified corpus index across many
+        # episodes. Never accept an index for a different corpus/boost.
+        if (not isinstance(shared_index,BM25Index)
+            or shared_index.documents!=tuple(documents)
+            or shared_index.title_boost!=config.title_boost):
+            return failure("shared_index_corpus_mismatch")
+        index=shared_index
     end_status=""
     for expected_step,entry in enumerate(trace.steps):
         if not isinstance(entry,dict) or entry.get("step")!=expected_step:
