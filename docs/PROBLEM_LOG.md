@@ -201,3 +201,11 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 
 - **Observed:** E-011 multi-role `manifest.json` had `model_id=null`, because `MultiAgentPolicy` wrapped an OpenAI-compatible policy and did not expose the `model` identifier. Source SHA, runtime server and model were independently known, but machine-readable manifest provenance was incomplete.
 - **Fix:** forward the underlying declared string model name via `MultiAgentPolicy.model_name`, add a focused regression test, and preserve original already-emitted manifests as immutable evidence. Subsequent model evaluations should record `sidra-qwen3-8b-awq` in the manifest.
+
+
+## P-024 — Post-SFT 0.6B Agent overuses tools and fails to terminate (OPEN)
+
+- **Observed 2026-10-26:** Base Qwen3-0.6B-Base produced no final correct answer on 32 frozen dev pilot questions and hit 28 malformed/illegal-action errors; train-only 40-step LoRA/SFT resulted in 1/32 exact-and-evidence-verified success but **26/32 tool-budget exhaustion**, only 1 normal finish and 5 errors. Mean tool calls rose 1.5625 → 4.875 and latency 2.535 → 5.648 seconds/task.
+- **Likely causes (not yet experimentally isolated):** biased TRAIN oracle action mix favoring search/read, only 40 optimizer updates, 0.6B Base model without native instruction-following ability, no explicit stop/abstention training, unconstrained local Transformers JSON parsing vs constrained vLLM 8B serving. None has yet been proven individually.
+- **Immediate controls:** preserve both full traces and original adapter, do **not** overwrite training outputs, analyze action transition and finish frequency using PILOT only, add explicit completion/stop/error trajectories from TRAIN-only sources, and compare under matched model/decoder settings; report tool-call and token costs.
+- **Status:** OPEN. Actual model weight update succeeded, but no robust positive answer/evidence generalization, GRPO, or recursive RSI gain has yet been established.
