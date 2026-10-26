@@ -323,6 +323,9 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
              out:Path,limit:int,seed:int,max_steps:int,max_tool_calls:int,
              max_context:int,split:str,greedy:bool=False,
              answer_proposer:str="legacy")->dict:
+    # This is a PUBLIC research pilot, not the gated sealed final benchmark.
+    if split not in {"dev","train"}:
+        raise ValueError("exploratory finite-action evaluation forbids sealed TEST")
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=False,ctx=max_context,
                        max_tool_calls=max_tool_calls,
@@ -349,7 +352,8 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
             "actual prior tool observations); decoupled from previous tasks."
         ),
         "trained_on_eval_gold":False,
-        "test_scope":"public DEV pilot, not sealed final-B160",
+        "test_scope":("public DEV pilot, not sealed final-B160" if split=="dev"
+                      else "TRAIN-only teacher-heldout, NOT DEV/TEST/final-B160"),
         "tool_budget_max":max_tool_calls,
         "step_budget_max":max_steps,
     }
@@ -383,7 +387,7 @@ def main():
     t.add_argument("--generations",type=int,default=4)
     t.add_argument("--updates",type=int,default=1)
     t.add_argument("--learning-rate",type=float,default=1e-5)
-    e.add_argument("--split",choices=["train","dev","test"],default="dev")
+    e.add_argument("--split",choices=["train","dev"],default="dev")
     e.add_argument("--limit",type=int,default=32)
     e.add_argument("--greedy",action="store_true",
                    help="Deterministic argmax over legal action choices, NOT an on-policy sampler")
