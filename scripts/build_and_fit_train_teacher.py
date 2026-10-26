@@ -361,11 +361,12 @@ def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
                            out:Path,seed:int=43,steps:int=96,
                            learning_rate:float=2e-5,
                            max_context:int=2048,
-                           min_train_trajectories:int=10)->dict:
+                           min_train_trajectories:int=10,
+                           validate_every:int=32)->dict:
     """Imitate strict-success TRAIN-only actions; NOT on-policy GRPO."""
     if out.exists():raise FileExistsError(out)
-    if steps<1 or min_train_trajectories<1:
-        raise ValueError("need positive supervision budget")
+    if steps<3 or min_train_trajectories<1 or validate_every<1:
+        raise ValueError("need positive supervision/evaluation budget")
     report=json.loads((data_dir/"TEACHER_SUMMARY.json").read_text())
     if (report.get("stage")!="TRAIN_ONLY_GOLD_SUPERVISED_TEACHER_NO_RL"
         or not report.get("includes_only_real_strict_successes")
@@ -408,6 +409,13 @@ def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
     if not params:raise RuntimeError("no LoRA parameters trainable")
     torch.cuda.reset_peak_memory_stats()
     pre=evaluate_teacher_label_fit(model,validation)
+    # Use only independent heldout TRAIN expert actions to choose among
+    # intermediate SFT checkpoints. Never select a checkpoint on public DEV.
+    # Copy only LoRA parameters, not 0.6B frozen base or optimizer states.
+    best_state=None
+    best_step=None
+    best_teacher_ce=math.inf
+    validation_history=[]
     t0=time.monotonic()
     losses=[]
     for ix,r in enumerate(selected):
@@ -425,7 +433,30 @@ def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
             print("TEACHER_SFT_UPDATE",ix+1,"/",len(selected),
                   "loss",round(losses[-1],4),
                   "elapsed_s",round(time.monotonic()-t0,1),flush=True)
+        if (ix+1)%validate_every==0 or ix+1==len(selected):
+            observed=evaluate_teacher_label_fit(model,validation)
+            validation_history.append({
+                "step":ix+1,"heldout_train_teacher_action":observed})
+            ce=observed["mean_masked_cross_entropy"]
+            if not math.isfinite(ce):
+                raise RuntimeError("Non-finite heldout TRAIN teacher CE")
+            if ce<best_teacher_ce:
+                best_teacher_ce=ce
+                best_step=ix+1
+                best_state=[p.detach().clone() for p in params]
+            print("SFT_TRAIN_HOLDOUT_CHECK",ix+1,
+                  "ce",round(ce,6),"accuracy",
+                  round(observed["teacher_action_accuracy"],6),
+                  "best_step",best_step,flush=True)
+    if best_step is None or best_state is None:
+        raise RuntimeError("SFT never obtained a valid checkpoint")
+    with torch.no_grad():
+        for param,best in zip(params,best_state):
+            param.copy_(best)
+    del best_state
     post=evaluate_teacher_label_fit(model,validation)
+    if abs(post["mean_masked_cross_entropy"]-best_teacher_ce)>1e-5:
+        raise RuntimeError("best heldout TRAIN teacher checkpoint not restored")
     out.mkdir(parents=True,exist_ok=False)
     model.save_pretrained(str(out))
     tokenizer.save_pretrained(str(out))
@@ -442,6 +473,15 @@ def fit_supervised_teacher(*,data_dir:Path,model_path:Path,adapter_path:Path,
         "heldout_train_teacher_actions_available":len(validation),
         "optimizer_updates":len(losses),
         "optimizer_action_label_targets":len(losses),
+        "best_heldout_train_selected_step":best_step,
+        "heldout_train_sft_ce_improved_vs_baseline":(
+            post["mean_masked_cross_entropy"] <
+            pre["mean_masked_cross_entropy"]),
+        "heldout_train_sft_accuracy_improved_vs_baseline":(
+            post["teacher_action_accuracy"] >
+            pre["teacher_action_accuracy"]),
+        "validation_history_train_only":validation_history,
+        "checkpoint_selection":"lowest heldout TRAIN teacher-action CE; no DEV data",
         "supervision_action_kind_counts":dict(Counter(x["target_kind"] for x in selected)),
         "tool_observation_token_targets":0,
         "before_heldout_train_teacher_action":pre,
@@ -488,6 +528,7 @@ def main():
     y.add_argument("--learning-rate",type=float,default=2e-5)
     y.add_argument("--max-context",type=int,default=2048)
     y.add_argument("--min-train-trajectories",type=int,default=10)
+    y.add_argument("--validate-every",type=int,default=32)
     a=p.parse_args()
     if a.stage=="make":
         report=make_teacher_data(
@@ -501,7 +542,8 @@ def main():
             data_dir=a.teacher_data,model_path=a.model,adapter_path=a.adapter,
             out=a.out,seed=a.seed,steps=a.steps,
             learning_rate=a.learning_rate,max_context=a.max_context,
-            min_train_trajectories=a.min_train_trajectories)
+            min_train_trajectories=a.min_train_trajectories,
+            validate_every=a.validate_every)
 
 if __name__=="__main__":
     main()
