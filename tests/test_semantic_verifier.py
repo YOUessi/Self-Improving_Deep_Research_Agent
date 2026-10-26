@@ -3,7 +3,7 @@ import pytest
 
 from sidra.semantic_verifier import (
     question_answer_hypothesis, actual_cited_reads,
-    sentence_windows, semantic_review,
+    sentence_windows, semantic_review,observed_cross_citation_title_link,
 )
 
 
@@ -155,3 +155,49 @@ def test_same_trace_no_gold_fields_are_passed_to_nli():
     assert "Berlin" not in serialized
     assert "secret-id" not in serialized
     assert "Secret" not in serialized
+
+
+def test_observed_title_link_is_sourced_from_distinct_cited_reads_only():
+    docs={
+        "crisp":{"title":"Rock 'n' Roller Crisps",
+                 "text":"Rock'n Rollers were crisps made by Golden Wonder."},
+        "maker":{"title":"Golden Wonder",
+                 "text":"Golden Wonder has been owned by Tayto since 2006."},
+        "hidden":{"title":"Secret","text":"Unknown"},
+    }
+    assert observed_cross_citation_title_link(docs,("crisp","maker"))
+    assert not observed_cross_citation_title_link(docs,("maker","hidden"))
+    assert not observed_cross_citation_title_link(docs,("crisp",))
+    assert not observed_cross_citation_title_link(docs,("crisp","maker","hidden"))
+
+
+def test_unlinked_high_confidence_nli_is_rejected_but_prediction_retained():
+    scorer=ToyNLI({"entailment":0.995,"neutral":0.004,"contradiction":0.001})
+    t=trace()
+    assert semantic_review(t,t["question"],scorer).status=="model_predicted_entailment"
+    guarded=semantic_review(t,t["question"],scorer,require_bridge_link=True)
+    assert guarded.status=="model_entailment_blocked_no_observed_bridge"
+    assert guarded.observed_bridge_link is False
+    assert guarded.model_prediction=="entailment"
+    # Now establish an actual cross-READ link using one *observed* title.
+    t["steps"][2]["observation"]["text"]="Marie Curie was born in Warsaw, Poland."
+    accepted=semantic_review(t,t["question"],scorer,require_bridge_link=True)
+    assert accepted.status=="model_predicted_entailment"
+    assert accepted.observed_bridge_link is True
+
+
+def test_partial_title_overlap_is_not_cross_citation_link():
+    reads={
+        "a":{"title":"The Latino World Order",
+             "text":"Eddie Guerrero led the Latino World Order."},
+        "b":{"title":"Jeff Farmer (wrestler)",
+             "text":"Jeff Farmer was born in 1962 and played the New World Order persona."},
+    }
+    assert not observed_cross_citation_title_link(reads,("a","b"))
+    accented={
+        "a":{"title":"Acis et Galatée",
+             "text":"The work belongs to the pastorale-héroïque genre."},
+        "b":{"title":"Pastorale héroïque",
+             "text":"The first work was Acis et Galatée by Lully."},
+    }
+    assert observed_cross_citation_title_link(accented,("a","b"))
