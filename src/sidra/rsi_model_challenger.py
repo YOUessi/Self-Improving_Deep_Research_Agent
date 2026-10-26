@@ -138,7 +138,7 @@ class LocalOpenAIChallenger:
             "seed":seed,
             "max_tokens":self.max_tokens,
             "response_format":{"type":"json_object"},
-            "extra_body":{"chat_template_kwargs":{"enable_thinking":False}},
+            "chat_template_kwargs":{"enable_thinking":False},
         }
         request=Request(
             self.endpoint,
