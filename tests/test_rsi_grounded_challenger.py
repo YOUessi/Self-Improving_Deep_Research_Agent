@@ -145,3 +145,43 @@ def test_grounded_cli_keeps_generated_answers_out_of_training(tmp_path):
                 manifest_file=queue/"QUEUE_MANIFEST.json",
                 verifier_map=queue/"VERIFIER_ONLY_MAP.jsonl",
                 backend=FakeLocalBackend(),seed=43,out=out,limit=1)
+
+    # Independent verifier runs AFTER inference, from saved immutable
+    # artefacts and original TRAIN text. Model self-reported "valid" does
+    # not confer any gold-label authority.
+    from sidra.rsi_grounded_audit import audit_saved_grounded_candidates
+    from hashlib import sha256
+
+    def check():
+        return audit_saved_grounded_candidates(
+            data,queue/"CHALLENGER_INPUT.jsonl",
+            queue/"QUEUE_MANIFEST.json",
+            queue/"VERIFIER_ONLY_MAP.jsonl",out)
+    checked=check()
+    assert checked["literal_two_document_quote_passes"]==1
+    assert checked["new_trainable_challenges_approved"]==0
+    assert checked["semantic_entailment_approved"]==0
+    assert checked["grounding_packets_recomputed"]==1
+
+    result_file=out/"UNLABELLED_GROUNDED_CANDIDATES.jsonl"
+    summary_file=out/"GROUNDED_CANDIDATE_SUMMARY.json"
+    original_rows=result_file.read_text()
+    original_summary=summary_file.read_text()
+    rows=[json.loads(x) for x in original_rows.splitlines()]
+    rows[0]["evidence"][0]["quote"]="The bridge was built by the incorrect designer."
+    result_file.write_text("\n".join(json.dumps(x) for x in rows)+"\n")
+    metrics=json.loads(summary_file.read_text())
+    metrics["grounded_candidates_output_sha256"]=sha256(result_file.read_bytes()).hexdigest()
+    summary_file.write_text(json.dumps(metrics))
+    with pytest.raises(ValueError,match="quote proof"):
+        check()
+    result_file.write_text(original_rows)
+    summary_file.write_text(original_summary)
+
+    # An attacker must not mark a quote-valid novel question as fully
+    # verified merely by editing its aggregate manifest.
+    metrics=json.loads(summary_file.read_text())
+    metrics["new_trainable_challenges_approved"]=1
+    summary_file.write_text(json.dumps(metrics))
+    with pytest.raises(ValueError,match="unsafe model label claim"):
+        check()
