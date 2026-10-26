@@ -67,3 +67,14 @@
 - **Top-10:** support recall **1.0**, all-support completion **24/24 = 1.0**, because the provided distractor candidate set contains gold passages.
 - **Raw results:** Tang `~/experiments/sidra_m3/results/retrieval_seed42_24/` (`per_example.jsonl`, `summary.json`). Do not treat these as LLM answer accuracy or training gain. Sample is intentionally small.
 - **Open gate:** install/verify AWQ inference backend (vLLM), run actual Qwen3-8B-AWQ inference on frozen 24 dev examples, compare matched single/multi-role tool and total inference budgets, and preserve every failed case. The actual model baseline is **NOT YET RUN**.
+
+
+## E-004 — Qwen3-8B BF16 local GPU inference, single-action diagnostic (2026-10-26)
+
+- **Goal:** independently verify that a complete Qwen3-8B BF16 checkpoint can perform non-thinking chat-template inference on Tang, before testing a multi-hop benchmark.
+- **GitHub code:** `scripts/probe_qwen3_bf16_offload.py`, SHA `cee7363af8237a41b4e9de03ed02316788c88a4f`.
+- **Model:** official checksum-verified Qwen3-8B BF16 in `/home/you/models/Qwen3-8B`; device: RTX 4090 Laptop 16GB, PyTorch+Transformers through existing CodeRL-Lab .venv.
+- **Runtime:** Accelerate `device_map=auto` with 11GiB GPU cap and CPU offload, no model update. Model load **4.23s**; generate **19 tokens / 13.45s**; peak CUDA allocated **11,770,267,136 bytes**. First 24 model layers ran on GPU and remaining 12 layers plus lm_head on CPU.
+- **Output:** correctly structured JSON tool action `{"kind":"search","query":"Tokyo Tower"}` under `enable_thinking=False`.
+- **Artifacts:** Tang `~/experiments/sidra_m3/results/qwen3_8b_bf16_probe.json` and associated stdout log. **This is a smoke test, not HotpotQA success or multi-Agent performance**.
+- **Next:** the same real model is now being evaluated with SIDRA's `search/read/finish` loop on frozen 24-item HotpotQA distractor subset. Initial run only includes **2 dev questions**, capped to 6 steps and 5 tool calls. Its outcome must be logged separately.
