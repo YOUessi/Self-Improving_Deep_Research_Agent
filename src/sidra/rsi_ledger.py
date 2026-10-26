@@ -23,6 +23,7 @@ from pathlib import Path
 
 from sidra.agent import AgentConfig
 from sidra.rsi_trace_audit import audit_tool_trace
+from sidra.retrieval import BM25Index
 from sidra.schema import AgentTrace,Document,Question
 from sidra.train_reward import score_train_rollout
 
@@ -119,6 +120,9 @@ def verify_train_traces(
     if len(by_challenge)!=len(challenges):
         raise ValueError("duplicate challenge IDs")
     evaluated=[]
+    shared_docs=list(documents.values())
+    cfg=config or AgentConfig()
+    shared_idx=BM25Index(shared_docs,title_boost=cfg.title_boost)
     for tr in traces:
         c=by_challenge.get(tr.question_id)
         if c is None:raise ValueError("unsolicited or unknown challenge ID")
@@ -146,7 +150,8 @@ def verify_train_traces(
         # SECURITY: evaluator metrics trust the supplied trace; replay the
         # entire gold-blind SearchAgent tool timeline against the immutable
         # source corpus before considering TRAIN-only reward labels.
-        audit=audit_tool_trace(comparison,tr,list(documents.values()),config=config)
+        audit=audit_tool_trace(comparison,tr,shared_docs,config=cfg,
+                               shared_index=shared_idx)
         if not audit.structurally_valid or not audit.complete_legal_finish:
             evaluated.append({
                 "challenge_id":c.challenge_id,
