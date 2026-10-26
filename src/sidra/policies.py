@@ -117,7 +117,9 @@ class OpenAICompatiblePolicy:
     def __init__(self, endpoint: str, model: str, *, key_env: str = "OPENAI_API_KEY",
                  timeout: int = 90, max_tokens: int = 400,
                  constrain_actions: bool = False,
-                 constrain_document_ids: bool = False):
+                 constrain_document_ids: bool = False,
+                 temperature: float = 0.0, top_p: float = 1.0,
+                 seed: int | None = None):
         if not endpoint.startswith(("http://", "https://")):
             raise ValueError("Endpoint must use http:// or https://")
         if not model.strip():
@@ -131,9 +133,17 @@ class OpenAICompatiblePolicy:
         if constrain_document_ids and not constrain_actions:
             raise ValueError("constrain_document_ids requires constrain_actions")
         self.constrain_document_ids = constrain_document_ids
+        if not 0.0 <= temperature <= 2.0 or not 0 < top_p <= 1.0:
+            raise ValueError("invalid sampling temperature/top-p")
+        self.temperature = temperature
+        self.top_p = top_p
+        self.seed = seed
         self.model_calls = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        # TRAIN-only rollout sampler may persist these messages and actual
+        # assistant action strings, with no API keys and no evaluator labels.
+        self.action_io: list[dict] = []
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         return self.decide_with_system(question, observations, remaining, SYSTEM)
@@ -145,7 +155,10 @@ class OpenAICompatiblePolicy:
         body = {"model": self.model, "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
-        ], "temperature": 0.0, "max_tokens": self.max_tokens}
+        ], "temperature": self.temperature, "top_p": self.top_p,
+            "max_tokens": self.max_tokens}
+        if self.seed is not None:
+            body["seed"] = self.seed + self.model_calls
         # Qwen3 thinking mode consumes tokens before emitting JSON actions.
         # vLLM accepts this request-level chat-template setting.
         if "qwen3" in self.model.casefold():
@@ -226,7 +239,17 @@ class OpenAICompatiblePolicy:
         usage = packet.get("usage") or {}
         self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
         self.completion_tokens += int(usage.get("completion_tokens") or 0)
-        message = packet["choices"][0]["message"]["content"]
+        choice = packet["choices"][0]
+        message = choice["message"]["content"]
         if not isinstance(message, str):
             raise ValueError("Model returned non-string content")
+        self.action_io.append({
+            "messages": body["messages"],
+            "raw_completion": message,
+            "generation_seed": body.get("seed"),
+            "finish_reason": choice.get("finish_reason"),
+            "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+            "completion_tokens": int(usage.get("completion_tokens") or 0),
+            "constrained_schema": bool(self.constrain_actions),
+        })
         return Action.from_dict(_json_object(message))

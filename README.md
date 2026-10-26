@@ -1,6 +1,6 @@
 # Self-Improving Deep Research Agent (SIDRA)
 
-**Status (2026-10-26): M1 traceable-search baseline and CPU smoke tests complete. Tang has run cached pretrained Qwen2.5-1.5B/3B **on synthetic fixtures only**. In the latest 3B 8-question dev smoke check, answer EM=1/8 and independently verified success=0/8. No real HotpotQA baseline, SFT, GRPO, or RSI improvement has been demonstrated.**
+**Research status (2026-10-27, M6 Draft):** Qwen3-8B(-AWQ) weights are verified and real vLLM inference ran on Tang. HotpotQA distractor DEV has an immutable hash-frozen 256-QA set (pilot32, eval-A64, sealed final-B160). Qwen3-0.6B stop-curriculum SFT with dynamic online document-ID tool constraints achieved **17/64 answer EM** and **6/64 cited original supporting-sentence success** on eval-A64; this remains publicly sourced DEV, not an external hidden test. A gold-blind extra bridge search improved PILOT retrieval coverage but **reduced** real Agent answer EM. Real TRAIN sampled multi-turn rollouts showed sparse group rewards (5/12 and 2/8 variable groups). One actual masked group-relative replay LoRA update changed weights but **did not improve** pilot32 answer or evidence success; due constrained-inference vs unconstrained-logprob mismatch it is **NOT standard on-policy Agentic GRPO**. Genuine multi-turn on-policy GRPO and iterative RSI are **NOT implemented or validated**. Full [M6 results, limitations and checks](docs/M6_RESULTS_AND_RL_VALIDITY_20261027.md).
 
 Research-oriented, evidence-grounded multi-hop agent with **search → read → finish**, explicit tool budgets, read-before-cite validation, JSONL trajectories, reproducible metrics, train-only SFT export, and an OpenAI-compatible model adapter (for vLLM, etc.). **GitHub is the single source of truth; Tang is reserved for experiments requiring GPU.**
 
@@ -59,15 +59,22 @@ sidra eval --dataset benchmarks/hotpotqa_dev --split dev --policy openai \
 
 Existing run directories cannot be overwritten by the runner. Training checkpoints and outputs must be stored outside GitHub (`results/`, `training_runs/` are ignored).
 
-## Next milestones
+## Completed stages and remaining research gates
 
-- **M1:** CPU search/trace harness and HotpotQA adapter — implemented and fixture-tested.
-- **M2:** Real model baseline on frozen non-synthetic held-out dev/test benchmark. Pretrained Qwen inference **on synthetic fixtures only** includes an 8-question 3B dev check (EM=1/8, verified=0/8); real benchmark **not yet run**.
-- **M3:** Verifier-filtered *train-only* trajectory SFT. LoRA training entrypoint in `training/train_sft.py`; GPU run **not yet verified**.
-- **M4:** Agentic RL / GRPO with reward/rollout integration and a strong SFT-only control. Design in [training notes](training/README.md), **not implemented**.
-- **M5:** Challenger/Solver/Verifier self-improvement for multiple generations with separate frozen external test. **Not implemented**.
+| Stage | Evidence-based status |
+| --- | --- |
+| **M1** Traceable local Search Agent | Search/read/finish tool sandbox, limits, JSONL traces, citation gate; deterministic CPU fixtures |
+| **M2** Qwen3 and real multi-hop data | Checksum-verified Qwen3-8B BF16 & AWQ, vLLM API, genuine HotpotQA distractor runs |
+| **M3** Multi-role Planner/Researcher/Solver/Verifier | Implemented and tested; multi-role overhead/negative results preserved; no general dominance |
+| **M4** Frozen 256 DEV QA, evidence guard and train-only SFT | Pilot32/eval-A64/sealed final-B160, 8B evidence guard, genuine Qwen3-0.6B LoRA SFT |
+| **M5** Stop/abstain SFT and dynamic DocID restrictions | Actual TRAIN-only 40-step LoRA ablation; same-vLLM eval-A64 Qwen3-0.6B result EM17/64, sentence-grounded6/64 |
+| **M6** Second-hop query study and group-relative reward pilot | Pilot retrieval exposure improved, but Agent EM worsened; actual TRAIN 48+32 sampled tool episodes; one biased replay optimizer update with **zero** observed held-out pilot improvement |
+| **M7 / open** True on-policy tool GRPO + multi-generation RSI | **Not done.** Needs reward-spread controls, matching sampling/logprobs, independent seeds, semantic attribution, Challenger–Solver–Verifier–Trainer updates and sealed final evaluation |
 
-See [architecture](docs/ARCHITECTURE.md), [evaluation protocol](docs/EVALUATION_PROTOCOL.md), [experiment log](docs/EXPERIMENT_LOG.md) and [problem/solution log](docs/PROBLEM_LOG.md).
+For review see [M6 execution report](docs/M6_RESULTS_AND_RL_VALIDITY_20261027.md), [experiment ledger](docs/EXPERIMENT_LOG.md), [problem/solution ledger](docs/PROBLEM_LOG.md), and [M5 preregistered protocol](docs/M5_PROTOCOL_20261027.md).
+
+**Dataset caveat:** HotpotQA distractor tests use per-question candidate passages, **not full Wikipedia or actual web retrieval**. The original supporting-sentence audit checks that labeled sentences appeared in cited READ content, not full semantic entailment. All DEV samples are excluded from the RL/SFT optimizer; sealed final-B160 is still unused. Checkpoint binaries and raw train/dev data stay on Tang, not GitHub.
+
 
 ## Safety and data handling
 

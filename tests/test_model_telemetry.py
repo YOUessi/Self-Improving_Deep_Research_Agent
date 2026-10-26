@@ -41,6 +41,12 @@ def test_qwen3_vllm_request_disables_thinking_and_counts_usage(monkeypatch):
     assert policy.model_calls == 1
     assert policy.prompt_tokens == 84
     assert policy.completion_tokens == 18
+    assert len(policy.action_io) == 1
+    record = policy.action_io[0]
+    assert record["raw_completion"] == '{"kind":"search","query":"Alpha"}'
+    assert record["messages"][1]["role"] == "user"
+    assert record["prompt_tokens"] == 84
+    assert record["constrained_schema"] is False
 
 
 def test_non_qwen_model_has_no_qwen_specific_override(monkeypatch):
