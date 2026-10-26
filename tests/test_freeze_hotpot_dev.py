@@ -57,3 +57,20 @@ def test_bad_source_hash_does_not_write_files(tmp_path):
     with pytest.raises(ValueError, match="SHA256"):
         freeze_dev(raw, target, expected_sha256="f" * 64, pilot=4, heldout=6)
     assert not target.exists()
+
+
+def test_direct_script_invocation_creates_frozen_partitions(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    raw, sha = source_file(tmp_path)
+    script = Path(__file__).resolve().parents[1] / "scripts/freeze_hotpot_dev.py"
+    dest = tmp_path / "direct_cli"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--input", str(raw), "--out", str(dest),
+         "--source-sha256", sha, "--pilot", "2", "--heldout", "3"],
+        cwd=tmp_path, capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert (dest / "FROZEN_MANIFEST.json").is_file()
