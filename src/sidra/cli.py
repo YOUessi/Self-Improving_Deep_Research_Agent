@@ -27,6 +27,8 @@ def main() -> None:
     ev.add_argument("--max-tool-calls", type=int, default=7)
     ev.add_argument("--search-top-k", type=int, default=3)
     ev.add_argument("--limit", type=int, default=0)
+    ev.add_argument("--offset", type=int, default=0,
+                    help="Skip this many sorted items within the frozen split")
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--max-new-tokens", type=int, default=280)
     ev.add_argument("--offload-gpu-gib", type=int, default=0,
@@ -41,8 +43,8 @@ def main() -> None:
     if args.command == "export-sft":
         print(json.dumps(build_sft_examples(args.dataset, args.traces, args.out), indent=2))
         return
-    if args.limit < 0:
-        parser.error("--limit must be >= 0")
+    if args.limit < 0 or args.offset < 0:
+        parser.error("--limit and --offset must be >= 0")
     if args.policy.startswith("fixture-") and "fixture" not in (args.dataset / "README.md").read_text(
             encoding="utf-8"):
         parser.error("Fixture policies are strictly for generated synthetic fixtures")
@@ -66,7 +68,8 @@ def main() -> None:
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
     config = AgentConfig(max_steps=args.max_steps,
                          max_tool_calls=args.max_tool_calls, search_top_k=args.search_top_k)
-    result = evaluate(args.dataset, args.split, policy, args.out, config, args.limit, args.seed)
+    result = evaluate(args.dataset, args.split, policy, args.out, config,
+                      args.limit, args.seed, args.offset)
     print(json.dumps(result, indent=2))
     print(f"Results saved in {args.out}")
 
