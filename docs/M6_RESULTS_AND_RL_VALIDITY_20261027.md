@@ -37,3 +37,17 @@ Model: checksum-verified Qwen3-0.6B-Base + real M5 stop LoRA adapter `44e559a3d6
 2. Achieve nondegenerate TRAIN policy-rollout reward groups, and implement *on-policy* multi-turn GRPO with valid constrained-action old/new log-probabilities or an official TRL/verl agent environment.
 3. Evaluate multi-seed variation, cost, adversarial citations and original HotpotQA sentence-level supporting facts (current verifier is passage-level).
 4. Only after a valid online update: Challenger → Solver → Verifier → Trainer multi-generation model revisions, and one sealed final-B160 evaluation per pre-registered protocol. Do not present this replay pilot as RSI.
+
+
+## E-019: Matched pretrained stop LoRA vs ONE replay-updated LoRA (2026-10-27)
+
+The train-only one-step group-relative replay produced a genuinely different adapter (SHA256 `6669d104a420811ce68d11a7c8c94961f63df9b17a6618d463a4f8a766cb98e5`), but model parameters changing is NOT an agent performance result. We therefore served both starting stop LoRA and replay LoRA via the *same* vLLM 0.31.0 process on Tang (Qwen3-0.6B-Base; non-thinking mode; greedy; JSON-schema constrained actions with dynamic document ID whitelists; identical `GroundedPolicy(min_reads=2)`, BM25 Top3, max steps6, tools5).
+
+- **Evaluation dataset:** 32 frozen HotpotQA **DEV pilot** questions only; code snapshot `35186ff3dfb3807023335f6452ba0ddb5e7ecb36`. `final-B160` remains sealed; no post-replay tuning on eval-A64 was attempted.
+- **Before replay (stop LoRA):** answer EM **6/32**, strictly verified **2/32**, cited gold-support recall **0.515625**, model calls **4.1875**/question, tool calls **3.1875**, latency **4.0374s**/question, all 32 normal Finish.
+- **After replay (new LoRA):** answer EM **6/32**, strictly verified **2/32**, recall **0.515625**, model calls **4.21875**, tool calls **3.21875**, latency **4.0298s**/question, all 32 Finish.
+- **Paired 5,000-bootstrap:** both strict verified and answer EM delta **exactly zero**, intervals [0,0]; tool-call delta +0.03125 (interval [−0.0625,0.15625]); latency −0.0076s (interval [−0.0642,0.0353]). **No observed task-level improvement.**
+- **Raw immutable outputs:** Tang `~/experiments/sidra_m6/results/m6_pilot32_stop/`, `m6_pilot32_replay1/`, and `paired_replay1_vs_stop_pilot32.json`.
+- **Decision:** reject this *one-step biased replay* as evidence of GRPO benefit; preserve the model, code and negative result but do NOT promote the new LoRA to default or test it against the sealed final set. Prioritize a valid on-policy constrained-action tool rollout trainer and more informative TRAIN-only reward sampling.
+
+**Interpretation:** the concrete next objective is not merely more optimizer steps; it is correct masked on-policy action likelihood under the same behavior distribution, enough variable-reward groups and a nonnegative independent result. No RSI improvement is claimed.
