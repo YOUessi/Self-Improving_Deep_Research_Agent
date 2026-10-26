@@ -61,3 +61,26 @@ def test_assistant_token_mask_excludes_tool_context_logits():
     assert m.scores.grad[0,1].abs().sum()>0
     assert m.scores.grad[0,2].abs().sum()>0
     assert torch.equal(m.scores.grad[0,3],torch.zeros(8))
+
+
+def test_replay_question_membership_requires_actual_train_dataset(tmp_path):
+    import json
+    from sidra.io import save_jsonl
+    from sidra.schema import Document,Question
+    from scripts.replay_masked_grpo_pilot import validate_train_membership
+    data=tmp_path/"train";data.mkdir()
+    save_jsonl(data/"documents.jsonl",[Document("d","D","context").__dict__])
+    save_jsonl(data/"questions.jsonl",[Question("train-a","What?","answer",
+                                                    split="train").__dict__])
+    ok=fake_rollout("train-a",0,1.0)
+    ok["trace"]["question"]="What?"
+    digest=validate_train_membership([[ok]],data)
+    assert len(digest)==64
+    missing=fake_rollout("not-from-train",0,1.0)
+    missing["trace"]["question"]="Other"
+    with pytest.raises(ValueError,match="TRAIN"):
+        validate_train_membership([[missing]],data)
+    changed=fake_rollout("train-a",0,1.0)
+    changed["trace"]["question"]="Injected fake question"
+    with pytest.raises(ValueError,match="TRAIN"):
+        validate_train_membership([[changed]],data)
