@@ -51,3 +51,15 @@ The train-only one-step group-relative replay produced a genuinely different ada
 - **Decision:** reject this *one-step biased replay* as evidence of GRPO benefit; preserve the model, code and negative result but do NOT promote the new LoRA to default or test it against the sealed final set. Prioritize a valid on-policy constrained-action tool rollout trainer and more informative TRAIN-only reward sampling.
 
 **Interpretation:** the concrete next objective is not merely more optimizer steps; it is correct masked on-policy action likelihood under the same behavior distribution, enough variable-reward groups and a nonnegative independent result. No RSI improvement is claimed.
+
+
+## E-020: Original HotpotQA (title, sentence-index) supporting-sentence audit
+
+The baseline `verified_success` check used gold supporting document IDs and literal answer presence but did not explicitly confirm whether the original HotpotQA **supporting sentence indices** appeared in actually READ cited content. The new `scripts/audit_hotpot_sentence_evidence.py` is an OFFLINE-only evaluator that joins original official `supporting_facts` tuples to original context sentences, checks that each labelled sentence appears in a READ observation and is from a cited document, and computes aggregate-only results for the DEV heldout set. No gold sentence/index enters an Agent prompt or TRAIN optimizer.
+
+On the **same pre-existing 64-question eval-A runs**, with no model execution or parameter changes:
+- **Old Qwen3-0.6B SFT:** answer EM0/64; all original supporting sentences READ in **1/64** and cited in **1/64**; answer + all cited support sentences **0/64**. Mean supporting-sentence read fraction 0.329427.
+- **M5 stop-curriculum SFT:** answer EM17/64; all original supporting sentences READ and cited in **12/64**; answer + all cited support sentences **6/64**. Mean supporting-sentence read fraction 0.505469.
+- Thus the earlier passage-level six successful tasks were also supported at original sentence-exposure level on these 64 examples. This is stronger than document-level title citation, but still **not a learned semantic entailment verifier** or proof that every stated conclusion follows logically from those sentences.
+- **Tang evidence:** `~/experiments/sidra_m6/results/sentence_audit_evalA64_{old,stop}/summary.json`, and original saved M5 trajectories; latest source SHA `740540d372b555f8518ec28c5f757c9a9d63f79a`; 94 CPU tests passed. Aggregate-only mode deliberately does not export heldout per-question gold-derived annotations.
+- **Sealed DEV final-B160 is still unexamined.** Do not reuse sentence label data to train/shape a reward on DEV.
