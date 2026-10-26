@@ -68,7 +68,7 @@ def _check_finite_companion(b_dir:Path,c_dir:Path)->dict:
     if not a.exists():
         return {"kind":"legacy_unconstrained","distribution_documented":False}
     x,y=_json(a),_json(b)
-    unchanged=("policy_class","selection_mode","categorical_distribution",
+    unchanged=("policy_class","selection_mode","answer_proposer","categorical_distribution",
                "random_seed_keying","trained_on_eval_gold","test_scope",
                "tool_budget_max","step_budget_max")
     for k in unchanged:
@@ -84,6 +84,7 @@ def _check_finite_companion(b_dir:Path,c_dir:Path)->dict:
         "kind":"finite_constrained_categorical_agent",
         "distribution_documented":True,
         "selection_mode":x["selection_mode"],
+        "answer_proposer":x.get("answer_proposer","unversioned_legacy"),
         "old_adapter_sha256":x["source_adapter_sha256"],
         "new_adapter_sha256":y["source_adapter_sha256"],
     }
