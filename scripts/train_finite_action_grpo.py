@@ -41,13 +41,20 @@ def _sha256(path:Path)->str:
     return h.hexdigest()
 
 
-def select_train_only(questions,dev_ids:set[str],*,seed:int,n:int):
+def select_train_only(questions,dev_ids:set[str],*,seed:int,n:int,
+                      allowed_train_ids:set[str]|None=None):
     if n<1:raise ValueError("empty training selection")
     keys=[q.question_id for q in questions]
     if len(keys)!=len(set(keys)) or any(q.split!="train" for q in questions):
         raise ValueError("TRAIN-only unique split required")
     if set(keys)&dev_ids:
         raise ValueError("TRAIN overlaps frozen DEV question IDs")
+    if allowed_train_ids is not None:
+        if not allowed_train_ids or not allowed_train_ids.issubset(set(keys)):
+            raise ValueError("TRAIN curriculum IDs must be nonempty and belong to TRAIN")
+        if allowed_train_ids & dev_ids:
+            raise ValueError("TRAIN curriculum overlaps frozen DEV")
+        questions=[q for q in questions if q.question_id in allowed_train_ids]
     ordered=sorted(questions,key=lambda q:(
         hashlib.sha256(f"finite:{seed}:{q.question_id}".encode()).hexdigest(),
         q.question_id))
@@ -159,7 +166,8 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
 def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           out:Path,seed:int,groups:int,generations:int,updates:int,
           max_steps:int,max_tool_calls:int,max_context:int,
-          learning_rate:float,answer_proposer:str="legacy")->dict:
+          learning_rate:float,answer_proposer:str="legacy",
+          curriculum_teacher:Path|None=None)->dict:
     if out.exists():raise FileExistsError(out)
     if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
@@ -168,8 +176,40 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     docs,questions=load_dataset(data)
     dev=json.loads(dev_manifest.read_text())
     dev_ids=set(dev["pilot"]["selected_ids"])|set(dev["heldout"]["selected_ids"])
+    curriculum_ids=None
+    curriculum_audit=None
+    if curriculum_teacher is not None:
+        # Optional TRAIN-only success-reachable curriculum: the original
+        # oracle teacher has verified real legal trajectories in TRAIN. Gold
+        # controls only WHICH TRAIN questions are sampled, never policy
+        # observations, legal candidate actions, or live rollout rewards.
+        from sidra.io import iter_jsonl
+        source=json.loads((curriculum_teacher/"TEACHER_SUMMARY.json").read_text())
+        if (source.get("stage")!="TRAIN_ONLY_GOLD_SUPERVISED_TEACHER_NO_RL"
+            or source.get("teacher_uses_train_gold") is not True
+            or source.get("student_model_sees_gold_answer") is not False
+            or source.get("includes_only_real_strict_successes") is not True
+            or source.get("train_question_sha256")!=_sha256(data/"questions.jsonl")
+            or source.get("dev_manifest_sha256")!=_sha256(dev_manifest)):
+            raise ValueError("TRAIN-only teacher curriculum provenance mismatch")
+        rows=list(iter_jsonl(curriculum_teacher/"TEACHER_ACTIONS_TRAIN.jsonl"))
+        held=list(iter_jsonl(
+            curriculum_teacher/"TEACHER_ACTIONS_HELDOUT_TRAIN.jsonl"))
+        curriculum_ids={str(row["question_id"]) for row in rows}
+        heldout_ids={str(row["question_id"]) for row in held}
+        if not rows or curriculum_ids&heldout_ids:
+            raise ValueError("TRAIN teacher success curriculum/heldout contamination")
+        curriculum_audit={
+            "selection":"TRAIN-only oracle-teacher reachable questions",
+            "contains_train_gold_in_task_selection":True,
+            "model_policy_observes_gold":False,
+            "teacher_manifest_sha256":_sha256(curriculum_teacher/"TEACHER_SUMMARY.json"),
+            "eligible_train_question_count":len(curriculum_ids),
+            "teacher_validation_ids_in_optimizer":False,
+        }
     selected=select_train_only(
-        questions,dev_ids,seed=seed,n=groups*updates)
+        questions,dev_ids,seed=seed,n=groups*updates,
+        allowed_train_ids=curriculum_ids)
     doc_map={d.doc_id:d for d in docs}
     torch.manual_seed(seed)
     random.seed(seed)
@@ -259,6 +299,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         "training_questions_sha256":_sha256(data/"questions.jsonl"),
         "dev_manifest_sha256":_sha256(dev_manifest),
         "split":"train","seed":seed,"num_updates":updates,
+        "train_only_curriculum":curriculum_audit,
         "selected_training_ids":[q.question_id for q in selected],
         "updates":results,
         "max_steps":max_steps,"max_tool_calls":max_tool_calls,
@@ -331,10 +372,13 @@ def main():
         x.add_argument("--max-steps",type=int,default=6)
         x.add_argument("--max-tool-calls",type=int,default=5)
         x.add_argument("--max-context",type=int,default=2048)
-        x.add_argument("--answer-proposer",choices=["legacy","v2"],
+        x.add_argument("--answer-proposer",choices=["legacy","v2","v3"],
                        default="legacy",
                        help="Non-oracle lexical candidate catalog (frozen for A/B)")
     t.add_argument("--dev-manifest",required=True,type=Path)
+    t.add_argument("--curriculum-teacher",type=Path,default=None,
+                   help="Optional frozen TRAIN-only strict-success teacher directory; "
+                        "selects TRAIN questions only, never supplies gold to model.")
     t.add_argument("--groups",type=int,default=4)
     t.add_argument("--generations",type=int,default=4)
     t.add_argument("--updates",type=int,default=1)
@@ -351,7 +395,8 @@ def main():
     if args.command=="train":
         train(**common,dev_manifest=args.dev_manifest,
               groups=args.groups,generations=args.generations,
-              updates=args.updates,learning_rate=args.learning_rate)
+              updates=args.updates,learning_rate=args.learning_rate,
+              curriculum_teacher=args.curriculum_teacher)
     else:
         print(json.dumps(run_eval(
             **common,limit=args.limit,split=args.split,
