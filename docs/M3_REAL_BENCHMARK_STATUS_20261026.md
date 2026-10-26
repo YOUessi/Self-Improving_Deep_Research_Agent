@@ -33,3 +33,20 @@ This page is a factual checkpoint, **not an algorithmic claim of improvement**.
 
 ### Next decisive evaluation
 Run Qwen3-8B-AWQ with vLLM JSON-schema constrained actions, frozen real HotpotQA dev split, compare both single and multi-role, fixed tool budget and model sampling protocol. Evaluate meaningful held-out sample counts rather than just 2 QA items. Keep a no-constraint control to isolate the action-format benefit.
+
+
+## Evening update — AWQ/vLLM real action schema and eight-question comparison
+
+**Serving gate PASSED:** Qwen3-8B-AWQ loaded on Tang's 4090 Laptop through vLLM 0.31.0 / PyTorch 2.13.0+cu130; `/v1/models` returned HTTP200, real strictly constrained tool action request succeeded. Loopback server configured at port18980, max_model_len4096, gpu_memory_utilization0.72, max_num_seqs2, eager execution. The server was **shut down cleanly after experiments**; GPU idle allocation returned to roughly 351 MiB (15569 MiB free).
+
+**Schema diagnosis:** prior broad schema let first `search.query` run into 400-token completion cap with repetitive whitespace and incomplete JSON. The per-kind `oneOf` schema with length bounds completed identical prompt in 21 output tokens / 0.718s, and supported actual end-to-end actions.
+
+**Four schema-development examples** (dev offset4, limit4): loose schema had 4/4 first-action parse errors, zero tools, verified0/4; strict schema single-Agent answer1/4, verified0/4, multi answer0/4, verified0/4. Do not use these development examples as unseen validation.
+
+**Eight disjoint validation examples** (seed42 dev offset8–15, code SHA `b7067faa937cd137f32487dec9e1277ff43a7d97`): single Agent answer EM2/8, verified evidence success0/8, model calls4.25, prompt tokens3717.75, elapsed2.6775s/task; multi-role answer EM2/8, verified1/8, calls5.25, prompt tokens5225, elapsed3.450875s/task. The one verified multi-role example is question ID `5a8a5c0d554299515336137b`: both models answered correctly but only multi-role collected/cited both gold passages. **n=8 is far too small to establish general multi-agent superiority**, and the evidence checker is lexical/benchmark gold based rather than a full entailment judge.
+
+**Known metadata issue:** multi-role historic manifest at this SHA has null `model_id`, despite the model clearly identified by endpoint/service settings. A later code commit forwards the wrapped model ID and adds a test. Existing manifests were left unchanged.
+
+**Remaining:** run larger frozen dev with separate final test, compare constrained vs nonconstrained under equivalent output budgets, add a semantic attribution audit, then and only then train SFT/GRPO/RSI. No model updates so far.
+
+See E-008, E-009, E-010 and E-011 in `docs/EXPERIMENT_LOG.md`, and P-021/P-022/P-023 in `docs/PROBLEM_LOG.md`.
