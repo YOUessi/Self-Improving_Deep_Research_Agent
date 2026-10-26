@@ -87,6 +87,9 @@ class AgentTrace:
     search_calls: int = 0
     read_calls: int = 0
     elapsed_ms: int = 0
+    model_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     error: str = ""
 
     def as_dict(self) -> dict[str, Any]:

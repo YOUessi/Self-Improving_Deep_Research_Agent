@@ -52,3 +52,113 @@
 - **Controls:** early finish blocked, citations require read sources, no benchmark gold answer in prompts/role history, config-only Qwen3 cache rejected, missing weight shard detected.
 - **Limitations:** the implementation is sequential role specialization on one model backend. No independent concurrent role inference, HotpotQA benchmark, valid model-versus-model comparison, SFT, GRPO, or RSI improvement has been run for M2.
 - **Next:** synchronize the full GitHub snapshot to Tang through an approved method, then compare single and multi-role on the SAME frozen real benchmark with equal tool budgets and reported inference calls/tokens.
+
+
+## E-003 — HotpotQA distractor, real passages, BM25 retrieval profile (2026-10-26)
+
+- **Research question:** how often does the question-only BM25 initial search recover both evidence passages, before any model-side search reformulation?
+- **Original source:** [HotpotQA distractor validation](https://github.com/hotpotqa/hotpot), via HF-mirror copy of `RAGLAB/data/eval_datasets/HotPotQA/hotpot_dev_distractor_v1.json`. SHA-256 **4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea**, identical to the official HotpotQA dataset manifest. Source has 7,405 dev questions. Data is CC BY-SA 4.0 and is **not committed**.
+- **Sample:** 24 dev examples selected by ascending SHA-256 of `42:question_id` from the full original dev split, independent of labels or retrieval success. Selected IDs, seed, count and raw data checksum saved locally in `~/experiments/sidra_m3/data/seed42_dev24/original_subset.manifest.json`. The original `dev` label was retained; **no training data** is exported from these examples.
+- **Corpus:** 10 supplied candidate passages per question; 240 documents total; labels are evaluator-only, each question has 2 supporting document titles. This is *distractor candidate-passage* evaluation, **NOT full-Wikipedia or web retrieval**.
+- **Commands:** `scripts/select_hotpotqa.py --n 24 --seed 42`; `scripts/convert_hotpotqa.py --split dev`; `PYTHONPATH=src python scripts/profile_hotpot_retrieval.py --limit 24 --seed 42`. Tang used GitHub source snapshot `acfb4b32f59f2d1369486761907b342425cdaac5`; 32 CPU tests passed there.
+- **Top-1:** support recall **0.375**, all-support completion **0/24**.
+- **Top-3:** support recall **0.6458333**, all-support completion **9/24 = 0.375**.
+- **Top-5:** support recall **0.7708333**, all-support completion **14/24 = 0.583333**.
+- **Top-10:** support recall **1.0**, all-support completion **24/24 = 1.0**, because the provided distractor candidate set contains gold passages.
+- **Raw results:** Tang `~/experiments/sidra_m3/results/retrieval_seed42_24/` (`per_example.jsonl`, `summary.json`). Do not treat these as LLM answer accuracy or training gain. Sample is intentionally small.
+- **Open gate:** install/verify AWQ inference backend (vLLM), run actual Qwen3-8B-AWQ inference on frozen 24 dev examples, compare matched single/multi-role tool and total inference budgets, and preserve every failed case. The actual model baseline is **NOT YET RUN**.
+
+
+## E-004 — Qwen3-8B BF16 local GPU inference, single-action diagnostic (2026-10-26)
+
+- **Goal:** independently verify that a complete Qwen3-8B BF16 checkpoint can perform non-thinking chat-template inference on Tang, before testing a multi-hop benchmark.
+- **GitHub code:** `scripts/probe_qwen3_bf16_offload.py`, SHA `cee7363af8237a41b4e9de03ed02316788c88a4f`.
+- **Model:** official checksum-verified Qwen3-8B BF16 in `/home/you/models/Qwen3-8B`; device: RTX 4090 Laptop 16GB, PyTorch+Transformers through existing CodeRL-Lab .venv.
+- **Runtime:** Accelerate `device_map=auto` with 11GiB GPU cap and CPU offload, no model update. Model load **4.23s**; generate **19 tokens / 13.45s**; peak CUDA allocated **11,770,267,136 bytes**. First 24 model layers ran on GPU and remaining 12 layers plus lm_head on CPU.
+- **Output:** correctly structured JSON tool action `{"kind":"search","query":"Tokyo Tower"}` under `enable_thinking=False`.
+- **Artifacts:** Tang `~/experiments/sidra_m3/results/qwen3_8b_bf16_probe.json` and associated stdout log. **This is a smoke test, not HotpotQA success or multi-Agent performance**.
+- **Next:** the same real model is now being evaluated with SIDRA's `search/read/finish` loop on frozen 24-item HotpotQA distractor subset. Initial run only includes **2 dev questions**, capped to 6 steps and 5 tool calls. Its outcome must be logged separately.
+
+
+## E-005 — Real HotpotQA dev, Qwen3-8B BF16 single-Agent integration (2026-10-26)
+
+- **Source:** Tang GitHub snapshot `62e3874013d38c90b8677e9d9683b5598787fd52`, original verified HotpotQA distractor dev SHA-256 `4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea`, frozen ID-hash sample seed 42, converted candidate passages.
+- **Model:** Qwen3-8B BF16 official checkpoint, real pretrained/post-trained model inference with Transformers, `enable_thinking=False`. Tang 16GB GPU with `--offload-gpu-gib 12` and CPU layer offload. **No model parameter updates**.
+- **Parameters:** `--policy transformers --max-new-tokens 64 --max-steps 6 --max-tool-calls 5 --search-top-k 3 --limit 2 --seed 42`. This is **two** dev questions only, exploratory integration, not a statistically meaningful model benchmark.
+- **Exact result:** answer EM **2/2 = 1.0**, token F1 **1.0**, evidence precision **1.0**, supporting-doc recall **0.5**, strict verified success **0/2**. Both episodes terminated with `finish`.
+- **Trajectory pattern:** for both questions, model did `search -> read -> finish` after citing **only one** of the two gold supporting passages. Correct answers (`Key West`, `Dungeness crab`) were in the cited evidence but the full two-hop justification was not collected.
+- **Costs:** average 3 model calls, 1719 prompt tokens, 94 completion tokens, 2 tool calls (1 search+1 read), 48.08 seconds per question under CPU/GPU offload.
+- **Raw artifacts:** `Tang:~/experiments/sidra_m3/results/qwen3bf16_single_dev2/` (`traces.jsonl`, `per_example.jsonl`, `summary.json`, `manifest.json`).
+- **Conclusion:** Qwen3 genuine multi-hop QA *output* works, but evidence-complete tool policy still fails. **Do not claim perfect Agent performance from 2/2 answer EM**. A matched multi-role test on the same exact questions, tool budgets, model and code SHA was launched separately; its result is not included in E-005.
+
+
+## E-006 — Multi-role Qwen3-8B BF16 on same real HotpotQA dev2 (2026-10-26)
+
+- **Code:** same pinned GitHub snapshot `62e3874013d38c90b8677e9d9683b5598787fd52`, dataset, two question IDs, checkpoint, BF16 CPU/GPU offload, temperature=0, `max_new_tokens=64`, `max_steps=6`, `max_tool_calls=5`, `search_top_k=3` as E-005; only policy changed from `transformers` to `multi-transformers --min-citations 2`.
+- **Question IDs:** `5a7363ec5542991f29ee2dd7`, `5a75d9b4554299109176e5a7`, frozen dev-only input; no gold labels exposed to either policy.
+- **Multi-role:** answer EM **0/2**, F1 **0**, evidence precision/recall **0**, strict verified success **0/2**, all episodes abstained or errored. Mean model calls **3.5**, prompt tokens **2327.5**, completion tokens **125**, tool calls **2.5**, elapsed **63.685s** per question.
+- **Matched single (E-005):** answer EM **2/2**, strict verified success **0/2**; model calls **3.0**, prompt tokens **1719**, completion tokens **94**, tool calls **2.0**, elapsed **48.0755s** per question.
+- **Multi-role failures:** on first question, Planner search + Researcher read succeeded, but next Researcher call produced unparsable action JSON and terminated as error. On second, Researcher repeated reading the same document, then attempted premature finish, which the role guard converted to abstention.
+- **Conclusion:** sequential role specialization **worsened answer quality and cost** on these two real examples; it did **not** improve strict evidence completeness. This is an exploratory n=2 integration result, NOT a statistically powered assessment of multi-agent vs single-agent algorithms.
+- **Artifacts:** Tang `~/experiments/sidra_m3/results/qwen3bf16_multi_dev2/` plus single-run outputs and per-example JSONL. Negative results retained; do not rename this into a success experiment.
+- **Next gate:** fix structured-action robustness and repeated reads without using gold answers or growing the tool budget; then evaluate on disjoint held-out IDs from the frozen dev24 subset and report both model-calling costs and strict evidence success.
+
+
+## E-007 — Disjoint HotpotQA dev2 matched baseline vs repaired multi-role (2026-10-26)
+
+- **Aim:** test structural fixes (malformed JSON 1 bounded retry, duplicate-read and premature-finish replanning) on different genuine QA examples, not those used to diagnose E-006 failures.
+- **Provenance:** GitHub SHA `69614339669341eb9aa7e5c0881e83179fa61997`, Tang source mirror, **36 CPU tests passed**. Official HotpotQA distractor dev SHA-256 `4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea`, frozen seed42 24-question subset, sorted question offset **2**, limit **2**, thus disjoint from E-005/E-006 first two diagnostic items.
+- **Question IDs:** `5a79f6825542996c55b2dcb4`, `5a7b3ec95542995eb53be8d3`.
+- **Matched settings:** same Qwen3-8B BF16, non-thinking mode, Tang 4090 Laptop with GPU12GiB+CPU offload, greedy generation, `max_new_tokens=64`, steps6, max tool calls5, search top-k3. Only `policy` changes `transformers` vs `multi-transformers`; multi policy has role-specific instructions and at most one JSON format repair/replanning, counted as **extra model calls**.
+- **Single pretrained:** answer EM **0/2**, strict verified **0/2**, evidence recall **0**, mean model calls **4.0**, prompt tokens **3021**, completion tokens **142**, mean tool calls **3.0**, latency **72.4175 seconds**. Both episodes ended in error: an unparsable model action JSON after 3–5 calls.
+- **Repaired multi-role pretrained:** answer EM **0/2**, verified **0/2**, evidence recall **0**, mean model calls **5.0**, prompt tokens **4315**, completion tokens **206**, mean tool calls **3.0**, latency **104.5455 seconds**. Both episodes still ended in malformed JSON errors, despite bounded retry.
+- **Trace characterization:** first task requires comparison of Linda Stender and Leonard Lance birth years; both policies performed search, read, further search, read, then errored. Second task searched/read Edward C. Hugger and Alexander Acosta and likewise failed format parsing. Only action objects and verifier decisions logged, no private chain-of-thought.
+- **Raw outputs:** Tang `~/experiments/sidra_m3/results/holdout_offset2_transformers` and `~/experiments/sidra_m3/results/holdout_offset2_multi-transformers`, each with `traces.jsonl`, `per_example.jsonl`, `summary.json`, `manifest.json`. Never overwrite these run directories.
+- **Conclusion:** on the disjoint 2-question integration check, multi-role did not improve success and consumed more inference tokens and latency. **Neither result is statistically conclusive**, and no SFT/GRPO/RSI training occurred. Fix structure via tokenizer-constrained action schema or additional output tokens; run fresh held-out data with all costs accounted.
+
+
+## E-008 — Qwen3-8B BF16 generation-length ablation on the same dev2 (2026-10-26)
+
+- **Motivation:** E-007 ended both single-Agent episodes in malformed action JSON; test whether the action generation cap was too short.
+- **Code/data:** exactly the same Tang snapshot `69614339669341eb9aa7e5c0881e83179fa61997`, same HotpotQA original SHA-256 `4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea`, same seed42, same frozen dev offset2/limit2, Qwen3-8B BF16, nonthinking greedy, BM25 Top3, 6 steps, 5 tool calls. **Only max-new-tokens changed from 64 to 160.**
+- **At 64 tokens (E-007):** answer EM 0/2, verified 0/2, evidence recall 0.0, both runs terminated with parse errors, mean 4 model calls, 3021 prompt tokens, 142 completion tokens, 72.4175s/question.
+- **At 160 tokens (E-008):** answer EM **0/2**, verified **0/2**, evidence precision **1.0**, evidence recall **1.0**, both runs **finish** normally, mean 4.5 model calls, 3575.5 prompt tokens, 230.5 completion tokens, **116.804s/question**. Mean token F1 0.15.
+- **Per case:** `5a79f6825542996c55b2dcb4` generated `1951` with both cited supporting documents but wrong final answer; `5a7b3ec95542995eb53be8d3` generated a verbose response identifying people/appointment context, also wrong answer though it cited both gold supporting documents. Both were true `search/read/finish` trajectories, not rule fixture agents.
+- **Interpretation:** increasing the output cap fixed parse termination for **these two cases only** and permitted complete citations, but did NOT improve answer correctness and increased latency. The exact causal mechanism for parse errors is not proven (length vs schema robustness); strict JSON Schema constrained decoding should be separately compared in the live vLLM backend.
+- **Artifacts:** Tang `~/experiments/sidra_m3/results/holdout_offset2_transformers_gen160/` with full `summary.json`, `traces.jsonl`, `per_example.jsonl`, `manifest.json`. Model not trained. Do not claim RSI.
+
+
+## E-009 — Real Qwen3-8B-AWQ vLLM inference with constrained tool JSON (2026-10-26 evening)
+
+- **Hardware:** Tang RTX 4090 Laptop, 16GB VRAM. Official checksum-verified Qwen3-8B-AWQ under `/home/you/models/Qwen3-8B-AWQ`.
+- **Isolated runtime:** `~/experiments/sidra_m3/.venv_vllm`, vLLM **0.31.0**, PyTorch **2.13.0+cu130**, CUDA available. Prior failures from slow PyPI wheels were resolved by verified local wheel reuse, with remaining dependencies installed in this venv. There are `pip check` warnings related to inherited Mediapipe/colcon in the system-site-packages environment, unrelated to the successful AWQ smoke; package isolation should be strengthened later.
+- **Server:** loopback-only `127.0.0.1:18980`, `vllm serve /home/you/models/Qwen3-8B-AWQ --served-model-name sidra-qwen3-8b-awq --gpu-memory-utilization 0.70 --max-model-len 2048 --enforce-eager`; model weights loaded with AutoAWQ-Marlin kernel and FlashAttention 2; `GET /v1/models` returned **HTTP 200**. Measured GPU memory at server idle around **11.5 GB**.
+- **Tool-action request:** real HTTP `POST /v1/chat/completions` with Qwen3 `enable_thinking=false` and OpenAI-compatible strict JSON Schema (`kind` enum search/read/finish; query/doc_id/answer/citations fields).
+- **Response:** syntactically valid JSON satisfying the declared schema, `kind="search"`, `query="Tokyo Tower location"`, measured response time **1.632s**, prompt **64 tokens**, completion **68 tokens**.
+- **Important failure flag:** despite search action, model also filled `answer="Tokyo Tower is located in Tokyo, Japan."`, `citations=["https://en.wikipedia.org/wiki/Tokyo_Tower"]` before executing any search. These were unearned assertions and are NOT valid evidence citations. The runner must enforce action-kind semantics and read-before-cite; syntactic JSON Schema alone cannot prove grounded behavior.
+- **Raw output:** `Tang:~/experiments/sidra_m3/results/awq_schema_smoke_20261026.json`. This is an isolated **single-turn inference smoke**; not multi-hop benchmark quality, SFT, RL, or RSI.
+- **Follow-up:** server restarted with a 4096-token context to accommodate multi-hop tool history, and a matched single vs multi-role dev QA experiment was launched from SHA `a7db2111898419986103a1af33bbb090a44410ca`, on four previously unused ID-hashed HotpotQA distractor dev questions (offset4, limit4). Do not report outcomes before raw results complete.
+
+
+## E-010 — AWQ-vLLM JSON action schema failure and discriminated-union fix (2026-10-26 evening)
+
+- **Model/host:** locally served, checksum-verified Qwen3-8B-AWQ; vLLM 0.31.0, PyTorch 2.13.0+cu130 on Tang RTX 4090 Laptop. Loopback `127.0.0.1:18980`, Qwen3 nonthinking mode, max_model_len=4096. Real HotpotQA distractor dev, frozen seed42; diagnostic QA positions **4–7** (4 questions), previously unused by BF16 work.
+- **Loose-schema control:** GitHub source snapshot `a7db2111898419986103a1af33bbb090a44410ca`; one flat schema required all five fields for search/read/finish, with unbounded strings. 4/4 episodes failed to parse FIRST action, `completion_tokens=400`/episode, **0 tools used**, verified=0/4. Single average latency 5.265s, multi 10.71525s with two failed inference calls.
+- **Root cause reproduction:** directly replayed first question with the same Qwen3 prompt and loose schema. vLLM returned HTTP 200 with `finish_reason=length`, 400 completion tokens, and an unfinished `query` string containing repetitive whitespace; JSON parse error at end of response. Raw diagnostic summary is stored only on Tang `results/awq_schema_action_debug_20261026.json`.
+- **Fix:** GitHub commit `b7067faa937cd137f32487dec9e1277ff43a7d97` (source after schema and test update). Replace flat schema with **oneOf three disjoint action objects**: search requires only bounded query (maxLength120); read requires bounded doc_id (maxLength120); finish requires answer (maxLength100) and max5 bounded citations. All variants disallow extra properties; gold labels remain evaluator-only.
+- **Direct identical first-question probe:** with union schema + max_tokens160, returned complete `{"kind":"search","query":"City of Boston Christmas tree source Ainslee Glen Nova Scotia"}` in **21 completion tokens / 0.718s**, `finish_reason=stop`; saved at `results/awq_schema_union_probe.json`. This proves syntactic repair only.
+- **Same 4 diagnostic questions, repaired schema:** single Agent answer EM **1/4 = 0.25**, verified **0/4**, supporting-doc recall **0.5**, average 2.25 tool calls, 3.25 model calls, 121.25 output tokens, 1.904s/question, three finishes and one error. Multi-role answer EM **0/4**, verified **0/4**, support recall 0, average 3.0 tool calls, 5.5 model calls, 214.5 output tokens, 3.6395s/question, all four abstained.
+- **Interpretation:** repair changes FIRST-step behavior from 4/4 schema parse errors and zero tools to an executable Agent workflow. It **does not** establish improved multi-hop reasoning, evidence correctness or multi-role benefit. The 4 QA items were the diagnostic set used to fix the schema, not a clean independent test. A separate offset8–15, eight-QA comparison was queued as the next independent test.
+- **Raw artifacts:** Tang `results/qwen3awq_schema_openai_offset4_4`, `results/qwen3awq_schema_multi-openai_offset4_4`, `results/qwen3awq_union_openai_offset4_4`, `results/qwen3awq_union_multi-openai_offset4_4` and their manifests/traces. Do not overwrite.
+
+
+## E-011 — Independently selected eight real HotpotQA dev questions, Qwen3-8B-AWQ strict actions (2026-10-26)
+
+- **Purpose:** validate the length-bounded discriminated action JSON schema on questions **not used** for the E-010 parser/schema fix. Compare one-model single-Agent and sequential multi-role (Planner/Researcher/Solver/EvidenceAudit) in a matched vLLM runtime.
+- **Data and selection:** same official HotpotQA distractor dev SHA-256 `4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea`, frozen ID-hashed seed42 24-question set, **sorted offset=8, limit=8**, thus disjoint from diagnostic offset4–7. This is *per-question 10-candidate distractor passage retrieval*, NOT full Wikipedia.
+- **Code:** exact canonical source SHA `b7067faa937cd137f32487dec9e1277ff43a7d97` mirrored to Tang and tested (38 passed); not trained. Both runs matched: Qwen3-8B-AWQ, vLLM 0.31.0, `enable_thinking=false`, strict bounded `oneOf` action JSON, greedy temperature0, `max_steps=6`, `max_tool_calls=5`, BM25 `search_top_k=3`, same question IDs, single GPU serving endpoint localhost:18980 with max_model_len4096.
+- **Single Agent:** answer EM **2/8 = 0.25**, token F1 0.270833, strict verified success **0/8**, evidence recall 0.3125, mean model calls **4.25**, input tokens **3717.75**, output tokens **149.25**, tool calls **3.25**, elapsed **2.6775 s/question**; 5 finished, 3 errored.
+- **Sequential multi-role:** answer EM **2/8 = 0.25**, token F1 0.25, strict verified success **1/8 = 0.125**, evidence recall 0.1875, mean model calls **5.25**, input tokens **5225**, output tokens **178.75**, tool calls **3.5**, elapsed **3.450875 s/question**; 2 finished, 6 abstained.
+- **The one verified case:** question ID `5a8a5c0d554299515336137b` was answer-exact for both, but single-Agent cited only half of gold supporting documents (evidence recall0.5); multi-role cited both (recall1.0), passing the current benchmark verifier. The verifier uses answer exact-match, gold support completeness, read-before-cite and lexical presence; it is NOT a full natural-language entailment proof.
+- **Interpretation:** one positive multi-role verified-evidence example but **no overall answer-EM gain**; multi-role incurred extra calls, 40.5% more average input tokens and ~29% more elapsed wall-time. Eight QA examples are insufficient for a claim of statistical advantage. Do not advertise this as RSI/post-training improvement.
+- **Raw outputs:** `Tang:~/experiments/sidra_m3/results/qwen3awq_union_openai_holdout_offset8_8/` and `.../qwen3awq_union_multi-openai_holdout_offset8_8/`; summary/per-example/traces/manifests are unmodified, private artifacts not committed. M3 issue: in the original multi-role manifest `model_id` appeared as null because the wrapper hid `model`; the underlying endpoint and checkpoint were verified from run commands, process logs and code. This provenance issue was fixed for future runs in `MultiAgentPolicy` after E-011; historical manifests are not silently edited.

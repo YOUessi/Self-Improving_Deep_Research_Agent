@@ -42,6 +42,9 @@ class SearchAgent:
         seen_hits: set[str] = set()
         read_ids: set[str] = set()
         begin = time.perf_counter()
+        before_calls = int(getattr(self.policy, "model_calls", 0))
+        before_prompt = int(getattr(self.policy, "prompt_tokens", 0))
+        before_completion = int(getattr(self.policy, "completion_tokens", 0))
         for step in range(config.max_steps):
             remaining = config.max_steps - step
             try:
@@ -105,4 +108,7 @@ class SearchAgent:
         if not trace.termination:
             trace.termination = "step_budget_exhausted"
         trace.elapsed_ms = round((time.perf_counter() - begin) * 1000)
+        trace.model_calls = int(getattr(self.policy, "model_calls", 0)) - before_calls
+        trace.prompt_tokens = int(getattr(self.policy, "prompt_tokens", 0)) - before_prompt
+        trace.completion_tokens = int(getattr(self.policy, "completion_tokens", 0)) - before_completion
         return trace

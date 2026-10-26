@@ -115,7 +115,8 @@ class OpenAICompatiblePolicy:
     name = "openai_compatible_tool_agent"
 
     def __init__(self, endpoint: str, model: str, *, key_env: str = "OPENAI_API_KEY",
-                 timeout: int = 90, max_tokens: int = 400):
+                 timeout: int = 90, max_tokens: int = 400,
+                 constrain_actions: bool = False):
         if not endpoint.startswith(("http://", "https://")):
             raise ValueError("Endpoint must use http:// or https://")
         if not model.strip():
@@ -125,6 +126,10 @@ class OpenAICompatiblePolicy:
         self.key_env = key_env
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.constrain_actions = constrain_actions
+        self.model_calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         return self.decide_with_system(question, observations, remaining, SYSTEM)
@@ -137,12 +142,72 @@ class OpenAICompatiblePolicy:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
         ], "temperature": 0.0, "max_tokens": self.max_tokens}
+        # Qwen3 thinking mode consumes tokens before emitting JSON actions.
+        # vLLM accepts this request-level chat-template setting.
+        if "qwen3" in self.model.casefold():
+            body["chat_template_kwargs"] = {"enable_thinking": False}
+        # Optional OpenAI/vLLM JSON-schema constraint; never enable silently
+        # for non-schema endpoints. Required by the server only when explicitly
+        # requested through --constrain-actions.
+        if self.constrain_actions:
+            # Discriminated union, not a permissive object with five mandatory
+            # fields for *every* action. The old schema let the model spend
+            # all 400 tokens filling a search.query field with whitespace.
+            # Bound query/answer/id lengths; search must not contain fabricated
+            # answer/citations; finish must contain its declared sources.
+            schema = {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "search"},
+                            "query": {"type": "string", "minLength": 1,
+                                      "maxLength": 120},
+                        },
+                        "required": ["kind", "query"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "read"},
+                            "doc_id": {"type": "string", "minLength": 1,
+                                       "maxLength": 120},
+                        },
+                        "required": ["kind", "doc_id"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "finish"},
+                            "answer": {"type": "string", "maxLength": 100},
+                            "citations": {
+                                "type": "array",
+                                "items": {"type": "string", "maxLength": 120},
+                                "maxItems": 5,
+                            },
+                        },
+                        "required": ["kind", "answer", "citations"],
+                        "additionalProperties": False,
+                    },
+                ]
+            }
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "sidra_tool_action",
+                    "strict": True,
+                    "schema": schema,
+                },
+            }
         key = os.getenv(self.key_env, "")
         headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
         req = urllib.request.Request(self.endpoint, data=json.dumps(body).encode(), headers=headers,
                                      method="POST")
+        self.model_calls += 1
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 packet = json.load(response)
@@ -151,6 +216,9 @@ class OpenAICompatiblePolicy:
             raise RuntimeError(f"model endpoint HTTP {exc.code}") from None
         except urllib.error.URLError:
             raise RuntimeError("model endpoint unavailable") from None
+        usage = packet.get("usage") or {}
+        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        self.completion_tokens += int(usage.get("completion_tokens") or 0)
         message = packet["choices"][0]["message"]["content"]
         if not isinstance(message, str):
             raise ValueError("Model returned non-string content")

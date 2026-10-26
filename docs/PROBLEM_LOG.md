@@ -132,3 +132,72 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Independent full-file SHA-256 check matched the official ModelScope manifest for **every weight shard, tokenizer.json and index.json**: total 11/11 verified files, exit code 0, no unfinished shards.
 - Source of verification: `docs/QWEN3_MODEL_VALIDATION_20261026.json` and Tang `~/experiments/sidra_download/verification_report.json`; CodeRL-Lab's existing environment successfully parsed both configs/tokenizers.
 - **Resolution:** model downloads successful through the official ModelScope channel. The Hugging Face DNS/HTTPS outage itself remains unresolved and no system DNS changes were made. AWQ GPU inference is a separate pending validation.
+
+
+## P-016 — Fetching updated GitHub branch from Tang stalled (resolved via pinned archive)
+
+- **Observed:** original SIDRA GitHub clone completed and was validated, but a later `git fetch --quiet origin feat/m3-real-qwen3-hotpotqa-baseline` remained stalled for several minutes despite a successful `git ls-remote`; the remote `git remote-https` process remained idle.
+- **Correction:** terminated only the stalled fetch and downloaded the exact committed source SHA `acfb4b32f59f2d1369486761907b342425cdaac5` as a GitHub `codeload.github.com` tarball, extracted into a new immutable-looking source snapshot directory, wrote `GITHUB_COMMIT.txt` for run provenance. This is a mirror of GitHub, not a new source of truth.
+- **Verification:** extraction succeeded, Tang ran `PYTHONPATH=src python3 -m pytest -q` with **32 passed**. HotpotQA conversion and BM25 profiling ran from that snapshot.
+- **Remaining:** repeat this snapshot verification for every subsequent GitHub commit used for GPU tests; never mix code files across commits.
+
+## P-017 — vLLM dependency download stuck at z3-solver wheel (partially resolved)
+
+- **Observed:** installing `vllm==0.31.0` in isolated `~/experiments/sidra_m3/.venv_vllm` using default PyPI repeatedly stopped during a 29.3MB `z3-solver==4.15.4.0` download. A prior unrelated infra project experienced the same stall.
+- **Diagnosis:** direct PyPI wheel download was severely throttled, whereas Aliyun PyPI mirror returned fast partial content. This is a package distribution speed issue, not evidence that AWQ weights are damaged.
+- **Mitigation:** terminated the stalled pip operation (not the other project's install), downloaded the exact z3 wheel from Aliyun, verified **SHA256=7e103a6f203f505b8b8b8e5c931cc407c95b61556512d4921c1ddc0b3f41b08e** against PyPI metadata, installed it to SIDRA's isolated venv with `--no-deps`, and restarted vLLM installation with `--index-url https://mirrors.aliyun.com/pypi/simple/`.
+- **Remaining:** vLLM import, CUDA/AWQ compatibility and actual model inference must pass before closing the issue. Do not claim the model has run yet.
+
+
+### P-017 follow-up — Recover vLLM 0.31 wheel from verified local pip artifact
+
+- PyPI's official `vllm==0.31.0` wheel is **320,555,825 bytes**, official SHA-256 `39132b433967f0962d03d8a5f633b9bee6b32708f566c7d5637b79f8d0ef3433`.
+- Tang retained two previous fully downloaded copies under `/tmp/pip-unpack-*/vllm*.whl`; SHA-256 matched. Copied one to SIDRA `~/experiments/sidra_m3/wheels/`, installed with `pip install --no-deps` into **only** `~/experiments/sidra_m3/.venv_vllm`.
+- Slow default PyPI `z3-solver` download was mitigated using Aliyun mirror; wheel SHA-256 was checked against PyPI metadata (P-017 original).
+- `pip install vllm==0.31.0` was resumed with Aliyun as the explicit index to complete dependencies; package import, CUDA compatibility and Qwen3-AWQ serve are **not yet validated**. The large optional dependency closure can take longer than the base wheel.
+- Do not silently consider a `pip --no-deps` wheel install to mean a working inference environment. Check `pip check`, `import vllm` and actual inference separately.
+
+
+## P-018 — Real multi-role evaluation worsened on first two HotpotQA examples (OPEN)
+
+- **Evidence:** E-005 vs E-006 at GitHub code SHA `62e3874013d38c90b8677e9d9683b5598787fd52`; Qwen3-8B BF16/CPU offload, identical questions, prompt budget, top-k search and tool limits.
+- **Observed:** single-agent answers 2/2 exactly correct but verified 0/2; multi-role answers 0/2 and verified 0/2, with more model calls and higher latency.
+- **Failure 1:** Researcher third step returned no parseable action JSON; runner correctly terminated with a logged error.
+- **Failure 2:** Researcher repeated a `read(doc_id)` that had already been performed, then attempted early finish; the role guard enforced abstention because two distinct sources had not been collected.
+- **Hypotheses:** role instructions conflict with structured action schema, no recovery after malformed action, no deduplication of read actions, evidence gating applied too late.
+- **Status:** **OPEN**. Preserve failed traces. Implement general structural fixes (not gold-driven answer patches), regression tests, and a new experiment on disjoint frozen dev question IDs. No performance gain may be claimed from this first multi-role version.
+
+## P-019 — First multi-role launch had unbound shell variable (resolved)
+
+- **Observed:** first Tang shell attempt used `set -u` with an unset `sha` variable; it exited immediately before launching a model or writing results.
+- **Correction:** explicitly set `sha=62e3874013d38c90b8677e9d9683b5598787fd52` in the command. The corrected run produced E-006.
+- **Verification:** first command had no generated checkpoint/evaluation artifacts; second completed with saved JSONL and manifest at the pinned SHA.
+
+
+## P-020 — More JSON action parse failures on disjoint HotpotQA questions (OPEN)
+
+- **Reproduction:** Tang E-007, GitHub SHA `69614339669341eb9aa7e5c0881e83179fa61997`, non-thinking Qwen3-8B BF16 CPU+GPU, `--offset 2 --limit 2`, `max_new_tokens 64`, exact matched tool budget.
+- **Observed:** both single and multi-role policies produced malformed JSON at later turns. Single EM=0/2, strict verified=0/2; multi EM=0/2, strict verified=0/2 even with one bounded format retry; multi incurred +1 average model call and ~32 seconds/question additional latency.
+- **Evidence:** both runs' raw step traces and manifests preserved on Tang; no policy reads evaluator gold fields. A short generation cap and lack of hard JSON-schema constrained decoding are potential causes; no root cause proven yet because raw completions are not logged.
+- **Next controlled change:** add output-shape enforcement without leaking gold and compare fixed `max_new_tokens` settings, record per-step token counts and parse error frequencies, then test on fresh held-out question IDs. Do NOT declare an algorithmic gain based on retries or a tiny n=2 sample.
+
+
+## P-021 — AWQ/vLLM flat JSON Schema produces runaway query whitespace (FIXED at output-format layer)
+
+- **Observed:** vLLM 0.31.0 and Qwen3-8B-AWQ successfully loaded and served local HTTP 200 responses, but 4/4 real QA prompts stalled while generating the first `search` action: each hit `max_tokens=400` with malformed, unclosed JSON, no tool calls.
+- **Diagnostic replay:** one original HotpotQA dev question sent without gold fields, same system prompt/schema, yielded `finish_reason=length`; raw content started with a valid-looking search query but continued with repeated newline/space characters inside the quoted query. Not a GPU/weight-corruption or API outage.
+- **Cause hypothesis:** a permissive schema with five always-required fields and unbounded strings permitted an excessively long query instead of terminating an action. We cannot establish whether the exact trigger is XGrammar constraints, prompt/schema conflict or model sampling.
+- **Fix:** `src/sidra/policies.py` strict discriminated `oneOf` with per-kind required fields and bounded string lengths, plus `tests/test_structured_action_request.py`. GitHub Python 3.10/3.12 CI passed. Direct replay completed a valid search action in 21 tokens, 0.718s, `finish_reason=stop`.
+- **Residual:** real 4-QA diagnostic single-Agent answer EM 1/4, verified 0/4, multi-role 0/4 on both. Correct evidence/QA and longer independent benchmark remain OPEN; constrained syntax is not sufficient for correctness.
+
+
+## P-022 — AWQ first-action invalid JSON fixed by per-action schema, but reasoning remains weak (FORMAT FIXED, ACCURACY OPEN)
+
+- Loose schema allowed runaway whitespace in `query`; a real request terminated with `finish_reason=length` at 400 tokens. Four initial HotpotQA dev prompts failed at action 1 with no tools, despite healthy AWQ/vLLM API.
+- A `oneOf` schema now enforces exactly one of search/read/finish with per-kind required fields, bounded field lengths, max five citations, and no unknown properties. Direct identical prompt returned parseable search JSON in 21 tokens, 0.718s. Same 4 diagnostic QA progressed through actual tools, but strict verified success remained 0/4.
+- Independent seed42 dev offset8–15 with eight QA: single answer 2/8 and verified0/8; multi answer2/8 and verified1/8 at higher call/token/time cost. Syntax fix is real, but broad reasoning/RSI gain remains unproven; run a larger frozen set and independent human-audited subset before making claims.
+
+## P-023 — Wrapped multi-agent manifest lost model_id (FIXED FOR FUTURE RUNS)
+
+- **Observed:** E-011 multi-role `manifest.json` had `model_id=null`, because `MultiAgentPolicy` wrapped an OpenAI-compatible policy and did not expose the `model` identifier. Source SHA, runtime server and model were independently known, but machine-readable manifest provenance was incomplete.
+- **Fix:** forward the underlying declared string model name via `MultiAgentPolicy.model_name`, add a focused regression test, and preserve original already-emitted manifests as immutable evidence. Subsequent model evaluations should record `sidra-qwen3-8b-awq` in the manifest.
