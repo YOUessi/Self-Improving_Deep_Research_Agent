@@ -55,6 +55,9 @@ def score_trace(question: Question, trace: AgentTrace, docs: dict[str, Document]
         "search_calls": trace.search_calls,
         "read_calls": trace.read_calls,
         "elapsed_ms": trace.elapsed_ms,
+        "model_calls": trace.model_calls,
+        "prompt_tokens": trace.prompt_tokens,
+        "completion_tokens": trace.completion_tokens,
         "termination": trace.termination,
         "abstained": int(not trace.answer.strip()),
     }
@@ -64,7 +67,8 @@ def summarize(metrics: list[dict[str, Any]]) -> dict[str, Any]:
     if not metrics:
         raise ValueError("Cannot summarize zero examples")
     fields = ["exact_match", "token_f1", "evidence_precision", "verified_success",
-              "tool_calls", "search_calls", "read_calls", "elapsed_ms", "abstained"]
+              "tool_calls", "search_calls", "read_calls", "elapsed_ms", "abstained",
+              "model_calls", "prompt_tokens", "completion_tokens"]
     result = {"n": len(metrics), "policy": metrics[0]["policy"], "split": metrics[0]["split"]}
     for field in fields:
         result[field + "_mean"] = round(mean(m[field] for m in metrics), 6)
