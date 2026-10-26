@@ -31,3 +31,24 @@ Single online update:
 2. Increase eligible TRAIN reward *variance* without using DEV gold: two-hop TRAIN sampling, label-safe partial reading and supporting sentence checks, task difficulty stratification, independent random seeds.
 3. Integrate stateful tool environment in locally installed **TRL 1.14.1** (`GRPOTrainer(environment_factory=...)`) or compare rigorous custom on-policy masked loss against TRL implementation with matched log-probability policy, KL controls and step-by-step rewards.
 4. After multiple on-policy policy improvements on independent QA and verified sentence-level evidence, advance toward Challenger–Solver–Verifier–Trainer repeated generations. This first one-step adapter is **not RSI**.
+
+
+## Follow-up: actual same-decoder DEV pilot32 (negative result)
+
+An independent current-task evaluator ran **both** original stop SFT LoRA and the new online-updated LoRA under identical local Transformers greedy `enable_thinking=False` decoding, `max_new_tokens128`, genuine BM25 tools, `max_steps6`, `max_tool_calls5`, and exactly the frozen 32 HotpotQA public DEV pilot questions. Dataset SHA and source commit were identical in both immutable manifests; the actual run used GitHub snapshot `0b320e84da3c7106e307758c839e3919d1e8d875`.
+
+| Pilot32 outcome | Starting stop SFT | After one on-policy group-relative LoRA update |
+| --- | ---: | ---: |
+| Answer exact match | **0/32** | **0/32** |
+| Strict full-citation success | **0/32** | **0/32** |
+| Terminated with tool/action ERROR | 32/32 | 26/32 |
+| Abstained | 0/32 | 6/32 |
+| Average tool calls | 2.03125 | 2.0625 |
+| Average model calls | 3.03125 | 3.0625 |
+| Mean latency, seconds | 2.394875 | 2.282188 |
+
+**Error taxonomy:** Original model: 31/32 errors were **citing UNREAD document IDs** and 1 malformed JSON. Updated: 25/32 errors were unread citations and 1 malformed JSON; in six cases the model instead abstained. This is a syntax/validity change, **not any successful answer/evidence generalization**. Under constrained JSON/DocID serving the same starting SFT has previously performed better, but the current raw full-softmax optimizer intentionally used unconstrained actions for probability consistency; evaluator decoder affects absolute outcome, so compare only matched policies.
+
+- Raw files: Tang `~/experiments/sidra_m7/results/dev_pilot32_greedy128_{SFT,POST}/`; original TRAIN rollouts and optimizer artifact remain at `~/experiments/sidra_m7/results/onpolicy_grpo43_1step_6groups/`.
+- **Conclusion:** first on-policy training step was *mechanically valid*, gave 6/6 variable TRAIN reward groups and real nonzero gradients, but yielded **ZERO** answer-EM or evidence success improvement on fixed pilot32. Do **not** promote the new adapter to default or evaluate sealed final-B160.
+- **Next research gate:** constrain action choices (especially legal read/cite) **while matching sampling normalization and model log-probabilities**, or use native TRL tool environments with appropriate function-call fine-tuning. Then run multiple TRAIN updates/seeds and independently verify a nonzero answer/citation benefit. Do not mask invalid tool decisions without reflecting that transformation in the behavior policy.
