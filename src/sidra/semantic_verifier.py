@@ -16,6 +16,7 @@ Important invariants:
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
@@ -35,6 +36,7 @@ class SemanticReview:
     contradiction: float | None
     model_prediction: str
     semantic_ground_truth: str = "not_established"
+    observed_bridge_link: bool | None = None
 
     def as_dict(self)->dict:
         return asdict(self)
@@ -130,6 +132,48 @@ def actual_cited_reads(trace:dict)->dict[str,dict]:
     return found
 
 
+def observed_cross_citation_title_link(
+    reads:dict[str,dict], citations:tuple[str,...],
+)->bool:
+    """TRAIN-derived *gold-blind* cross-READ entity linkage heuristic.
+
+    A multi-hop evidence set must expose at least one directionally linked
+    title across two DISTINCT cited documents (e.g. a Golden Wonder article
+    named in the Rock 'n' Roller Crisps article). This is NOT a complete
+    logical entailment proof; it is a conservative source-only filter. Titles
+    with <2 tokens are deliberately declined to reduce generic matches.
+    """
+    def tokens(text:str)->list[str]:
+        norm=unicodedata.normalize("NFKD",text.casefold())
+        norm="".join(x for x in norm if not unicodedata.combining(x))
+        return re.findall(r"[a-z0-9]+",norm)
+
+    def title_in_other(title:str,text:str)->bool:
+        needle=tokens(title)
+        if len(needle)<2 or not any(len(w)>=4 for w in needle):
+            return False
+        hay=tokens(text)
+        return any(hay[i:i+len(needle)]==needle
+                   for i in range(len(hay)-len(needle)+1))
+
+    ids=tuple(dict.fromkeys(citations))
+    if len(ids)<2 or any(x not in reads for x in ids):
+        return False
+    # For 2 citations this is exactly one bridge edge; for >2 require all
+    # cited nodes connected by observable title mentions, not a loose edge.
+    connected={ids[0]}
+    while True:
+        added=set()
+        for i in connected:
+            for j in ids:
+                if j in connected:continue
+                if (title_in_other(reads[i].get("title",""),reads[j].get("text",""))
+                    or title_in_other(reads[j].get("title",""),reads[i].get("text",""))):
+                    added.add(j)
+        if not added:return len(connected)==len(ids)
+        connected.update(added)
+
+
 def sentence_windows(question:str,answer:str,reads:dict[str,dict],citations:tuple[str,...],
                      *, max_per_doc:int=2, max_chars:int=1450)->tuple[str,int]:
     """Gold-blind question+answer overlap selection from actually READ sources.
@@ -171,7 +215,8 @@ def sentence_windows(question:str,answer:str,reads:dict[str,dict],citations:tupl
 def semantic_review(trace:dict, question:str, scorer:NLIScorer, *,
                     min_citations:int=2,
                     entailment_threshold:float=0.85,
-                    contradiction_threshold:float=0.80)->SemanticReview:
+                    contradiction_threshold:float=0.80,
+                    require_bridge_link:bool=False)->SemanticReview:
     """Screen a completed answer without any gold labels.
 
     A positive verdict is labelled *predicted*, not semantically verified.
@@ -183,12 +228,15 @@ def semantic_review(trace:dict, question:str, scorer:NLIScorer, *,
     citations=tuple(map(str,trace.get("citations") or []))
     reads=actual_cited_reads(trace)
     valid=tuple(i for i in citations if i in reads)
+    bridge_linked=(observed_cross_citation_title_link(reads,citations)
+                   if source.reason=="lexical_only_entailment_unverified" else None)
     def result(status,reason,hypothesis="",n=0,scores=None,pred="not_evaluated"):
         scores=scores or {}
         return SemanticReview(
             status,reason,hypothesis,valid,n,
             scores.get("entailment"),scores.get("neutral"),
-            scores.get("contradiction"),pred)
+            scores.get("contradiction"),pred,
+            observed_bridge_link=bridge_linked)
     if source.reason!="lexical_only_entailment_unverified":
         return result("not_scored",source.reason)
     answer=str(trace.get("answer",""))
@@ -210,6 +258,10 @@ def semantic_review(trace:dict, question:str, scorer:NLIScorer, *,
         raise ValueError("invalid NLI posterior")
     pred=max(("entailment","neutral","contradiction"),key=lambda k:s[k])
     if (pred=="entailment" and s["entailment"]>=entailment_threshold):
+        if require_bridge_link and not bridge_linked:
+            return result("model_entailment_blocked_no_observed_bridge",
+                          "independent_read_titles_not_cross_linked",
+                          hypothesis,n,s,pred)
         return result("model_predicted_entailment","nli_entailment_not_proof",
                       hypothesis,n,s,pred)
     if (pred=="contradiction" and s["contradiction"]>=contradiction_threshold):
