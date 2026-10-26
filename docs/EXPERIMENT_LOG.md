@@ -174,3 +174,33 @@
 - **Interpretation:** train-only SFT improved ability to produce and execute actions and produced one verified success, but the student generally loops until the budget is exhausted. This is a negative/weak result for reliable long-horizon reasoning and search-stop decision. Results are only on pilot32, not on heldout; do not attribute the difference solely to reasoning capability rather than changed action-format behavior. Compare within same 0.6B base; **do not compare its absolute EM directly to the 8B-AWQ serving system** as an equal-model ablation.
 - **Raw immutable local data:** `~/experiments/sidra_m4/results/sft06b_pilot32_baseline/` and `.../sft06b_pilot32_adapted/`, each with full manifest, traces, per-example metrics and summary.
 - **Next gate:** improve the student action grammar and finish/stop supervision; inspect loop failure cases on pilot only, then independently validate on eval-A64 with a fixed revision. Do not open sealed final-B160 for tuning.
+
+
+## E-013 — TRAIN-only SFT stop/abstain curriculum, two real 0.6B LoRA runs (2026-10-27)
+
+- **Motivation:** M4 Qwen3-0.6B SFT pilot32 produced 70 Search + 112 Read but only ONE Finish, 26 tool-budget exhausted. Offline trace-forensics confirmed 35 *actual duplicate read* events and 12 duplicate searches. Its 3,304 teacher TRAIN actions were Search1,096 / Read1,472 / Finish736 (**22.28% Finish**) and SFT prompt hardcoded `remaining_steps=8-step` while benchmark runtime has `max_steps=6`. No dev answers used in failure-repair corpus.
+- **Control curriculum:** `scripts/build_stop_curriculum.py --mode format` uses exact same 736 verified TRAIN question IDs and 3,304 actions, normalizes `remaining_steps=6-step`, and uses per-kind minimal JSON tool actions. The TRAIN-only SFT source SHA256 `ff1a06377ecf99af1b7f9fc937910c2ffb94927c9a191ceb8497dc63c0086abe` was held fixed.
+- **Stop curriculum:** same 3,304 base actions + **736** last-turn verified Finish examples (only from actually read TRAIN evidence), **276** no-evidence last-step abstentions, **150** one-read insufficient-budget abstentions. 4,466 examples total: Finish1,898 (**42.50%**), Read1,472, Search1,096. No DEV data/labels or fabricated positive retrieval texts enter optimization.
+- **Training:** independent Qwen3-0.6B-Base checkpoint `da87bfb608c14b7cf20ba1ce41287e8de496c0cd`, seed43, 40 optimizer steps, LoRA rank16 BF16, lr0.00015, batch1 grad_accum8, max length1536, 1,600 max pre-token-filter samples. TRAIN/inner-val partitioned by question ID.
+- **Format-only LoRA:** 1,306 effective train and 194 internal-val action samples; train loss **0.1049003**, 64.22s Tang GPU, adapter SHA256 `cf926d0c2b033bed986b409c8ca71ce8fc26f04e85b3d08e5090d8275007fff9`. 
+- **Stop LoRA:** 1,249 train and 213 internal-val samples, loss **0.0967193**, 68.32s, adapter SHA256 `44e559a3d6bc61f46b5a736d0c8ff4f896c281e2139ff12f967ed4b7cc69d771`. Differences in per-question counts reflect curriculum over-sampling/cap; do not attribute loss differences to stop skill.
+- **Code:** pinned GH SHA `616acbba3588fa000a99e37c6ae8971a57a81a58`, **69 CPU tests passed** on Tang. Separate adapters and raw logs are under `Tang:~/experiments/sidra_m5/results/qwen3_06b_sft40_*/`; no weights pushed to Github.
+- **Interpretation:** real independent parameter updates, but **not GRPO/RSI**; post-training quality must be evaluated with equal real tools and sampling. No claim is made from lower training loss alone.
+
+## E-014 — 0.6B same-vLLM pilot32 static JSON schema vs observation-bound DocIDs (2026-10-27)
+
+- **Inference:** Qwen3-0.6B-Base with 3 individually loaded LoRA adapters (old/format/stop) through ONE vLLM 0.31.0 service (localhost port18981, greedy, Qwen3 non-thinking). Same 32 frozen genuine HotpotQA dev pilot questions, BM25 Top3, 6 max steps, 5 tools, same `OpenAICompatiblePolicy`, same structured JSON action schema. This is PILOT, not final-B heldout.
+- **Static action schema (no online document-ID enumeration):**
+  - Base: answer0/32, verified0/32, budget exhaustion32/32 (5 search calls per question, zero reads).
+  - Old SFT: answer0/32, verified0/32, **29/32 execution error**, 3 budget exhaustion. Among errors, invalid/unexposed doc reads and unread citations were predominant.
+  - Format-only SFT: answer0/32, verified0/32, **31/32 budget exhaustion**, 1 error. Extra correct syntax did not help stopping.
+  - Stop SFT: answer0/32, verified0/32, **32/32 execution error**, often premature finish citing un-READ documents. Training Finish frequency alone is not sufficient for grounded behavior.
+- **Protocol improvement:** added `src/sidra/observed_action_schema.py` and `--constrain-document-ids`: dynamically permits only previously exposed *unread* IDs for read and previously READ IDs for citations. Gold QA labels/support annotations are NEVER consulted. New tests cover no-hit, duplicate read exclusion, and independence of malicious/label-like document metadata (GitHub/Tang CPU tests 75 passed).
+- **Dynamic-ID 32-QA repeated comparison, still on PILOT32:**
+  - Base: EM0/32 verified0/32; 32 budget exhaustion, 5 searches per task, no reads.
+  - Old SFT: EM0/32 verified0/32; 23 abstentions, 6 errors, 3 budget exhaustion; calls4.125, read0.84375, latency4.555s/question.
+  - Format SFT: EM0/32 verified0/32; 30 budget exhaustion, 1 error, 1 finish; calls5.844, read2.0, latency3.955s.
+  - Stop SFT: **EM7/32 (21.875%)**, verified **0/32**, **32/32 normal Finish**, *no execution error*; mean 1.0 read, 1.0625 search, model calls3.0625, latency2.581s. It commonly finished after only ONE read, so citation support was still incomplete. This is **premature stop** despite improved answer and efficiency.
+- **Matched stop-vs-old within dynamic-ID pilot32:** paired answer EM delta +21.875pp, 95% paired bootstrap [9.375pp,37.5pp], whereas strict verified delta=0; stop used fewer calls and input tokens. Small PILOT, only one seed, not generalization proof.
+- **Raw, never overwritten:** `Tang:~/experiments/sidra_m5/results/vllm_pilot32_*/`, `docenum_pilot32_*/`, `paired_docenum_stop_vs_old_pilot32.json`, `action_loops_docenum_stop_vs_old_pilot32.json`.
+- **Next:** apply identical train-independent evidence guard (at least two real reads) to old/stop models under dynamic ID constraints, score strict passage support as PRIMARY outcome, then choose one policy and evaluate once on independent eval-A64. Sealed final-B160 remains untouched. Do not claim Agentic RL or multi-hop capability gains from answer-only pilot results.
