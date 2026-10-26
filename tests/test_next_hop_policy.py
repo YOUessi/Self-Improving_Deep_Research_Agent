@@ -127,3 +127,16 @@ def test_invalid_policy_budget_rejected():
     import pytest
     with pytest.raises(ValueError):
         FrontierFirstBridgePolicy(Scripted(), max_tool_calls=0)
+
+
+def test_reject_arbitrary_dev32_before_any_gold_is_read(tmp_path):
+    import pytest
+    from scripts.m7_retrieval_probe import run
+
+    dataset = tmp_path / "not_an_open_pilot"
+    dataset.mkdir()
+    (dataset / "documents.jsonl").write_text('{"fake":"doc"}\n')
+    (dataset / "questions.jsonl").write_text('{"fake":"question"}\n')
+    with pytest.raises(ValueError, match="frozen open pilot32"):
+        run(dataset, tmp_path / "output", mode="pilot")
+    assert not (tmp_path / "output").exists()
