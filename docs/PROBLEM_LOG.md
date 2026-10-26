@@ -180,3 +180,12 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Observed:** both single and multi-role policies produced malformed JSON at later turns. Single EM=0/2, strict verified=0/2; multi EM=0/2, strict verified=0/2 even with one bounded format retry; multi incurred +1 average model call and ~32 seconds/question additional latency.
 - **Evidence:** both runs' raw step traces and manifests preserved on Tang; no policy reads evaluator gold fields. A short generation cap and lack of hard JSON-schema constrained decoding are potential causes; no root cause proven yet because raw completions are not logged.
 - **Next controlled change:** add output-shape enforcement without leaking gold and compare fixed `max_new_tokens` settings, record per-step token counts and parse error frequencies, then test on fresh held-out question IDs. Do NOT declare an algorithmic gain based on retries or a tiny n=2 sample.
+
+
+## P-021 — AWQ/vLLM flat JSON Schema produces runaway query whitespace (FIXED at output-format layer)
+
+- **Observed:** vLLM 0.31.0 and Qwen3-8B-AWQ successfully loaded and served local HTTP 200 responses, but 4/4 real QA prompts stalled while generating the first `search` action: each hit `max_tokens=400` with malformed, unclosed JSON, no tool calls.
+- **Diagnostic replay:** one original HotpotQA dev question sent without gold fields, same system prompt/schema, yielded `finish_reason=length`; raw content started with a valid-looking search query but continued with repeated newline/space characters inside the quoted query. Not a GPU/weight-corruption or API outage.
+- **Cause hypothesis:** a permissive schema with five always-required fields and unbounded strings permitted an excessively long query instead of terminating an action. We cannot establish whether the exact trigger is XGrammar constraints, prompt/schema conflict or model sampling.
+- **Fix:** `src/sidra/policies.py` strict discriminated `oneOf` with per-kind required fields and bounded string lengths, plus `tests/test_structured_action_request.py`. GitHub Python 3.10/3.12 CI passed. Direct replay completed a valid search action in 21 tokens, 0.718s, `finish_reason=stop`.
+- **Residual:** real 4-QA diagnostic single-Agent answer EM 1/4, verified 0/4, multi-role 0/4 on both. Correct evidence/QA and longer independent benchmark remain OPEN; constrained syntax is not sufficient for correctness.
