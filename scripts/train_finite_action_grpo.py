@@ -110,7 +110,9 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
     # pre-update parameter distribution, not off-policy guided decoding.
     max_error=0.0
     with torch.no_grad():
-        for _,a in active[:min(12,len(active))]:
+        # Every sampled action must have come from THIS exact pre-update policy.
+        # Checking only the first few would silently admit off-policy tails.
+        for _,a in active:
             now=float(logprob_of_action(
                 model,a["prompt_ids"],a["legal_choice_token_ids"],
                 a["selected_index"]).detach())
