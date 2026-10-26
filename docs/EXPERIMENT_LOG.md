@@ -78,3 +78,15 @@
 - **Output:** correctly structured JSON tool action `{"kind":"search","query":"Tokyo Tower"}` under `enable_thinking=False`.
 - **Artifacts:** Tang `~/experiments/sidra_m3/results/qwen3_8b_bf16_probe.json` and associated stdout log. **This is a smoke test, not HotpotQA success or multi-Agent performance**.
 - **Next:** the same real model is now being evaluated with SIDRA's `search/read/finish` loop on frozen 24-item HotpotQA distractor subset. Initial run only includes **2 dev questions**, capped to 6 steps and 5 tool calls. Its outcome must be logged separately.
+
+
+## E-005 — Real HotpotQA dev, Qwen3-8B BF16 single-Agent integration (2026-10-26)
+
+- **Source:** Tang GitHub snapshot `62e3874013d38c90b8677e9d9683b5598787fd52`, original verified HotpotQA distractor dev SHA-256 `4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea`, frozen ID-hash sample seed 42, converted candidate passages.
+- **Model:** Qwen3-8B BF16 official checkpoint, real pretrained/post-trained model inference with Transformers, `enable_thinking=False`. Tang 16GB GPU with `--offload-gpu-gib 12` and CPU layer offload. **No model parameter updates**.
+- **Parameters:** `--policy transformers --max-new-tokens 64 --max-steps 6 --max-tool-calls 5 --search-top-k 3 --limit 2 --seed 42`. This is **two** dev questions only, exploratory integration, not a statistically meaningful model benchmark.
+- **Exact result:** answer EM **2/2 = 1.0**, token F1 **1.0**, evidence precision **1.0**, supporting-doc recall **0.5**, strict verified success **0/2**. Both episodes terminated with `finish`.
+- **Trajectory pattern:** for both questions, model did `search -> read -> finish` after citing **only one** of the two gold supporting passages. Correct answers (`Key West`, `Dungeness crab`) were in the cited evidence but the full two-hop justification was not collected.
+- **Costs:** average 3 model calls, 1719 prompt tokens, 94 completion tokens, 2 tool calls (1 search+1 read), 48.08 seconds per question under CPU/GPU offload.
+- **Raw artifacts:** `Tang:~/experiments/sidra_m3/results/qwen3bf16_single_dev2/` (`traces.jsonl`, `per_example.jsonl`, `summary.json`, `manifest.json`).
+- **Conclusion:** Qwen3 genuine multi-hop QA *output* works, but evidence-complete tool policy still fails. **Do not claim perfect Agent performance from 2/2 answer EM**. A matched multi-role test on the same exact questions, tool budgets, model and code SHA was launched separately; its result is not included in E-005.
