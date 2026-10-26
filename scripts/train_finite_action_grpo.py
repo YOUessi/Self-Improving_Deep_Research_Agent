@@ -56,7 +56,8 @@ def select_train_only(questions,dev_ids:set[str],*,seed:int,n:int):
 
 
 def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
-                ctx:int,max_tool_calls:int,selection_mode:str="sample"):
+                ctx:int,max_tool_calls:int,selection_mode:str="sample",
+                answer_proposer:str="legacy"):
     import torch
     from transformers import AutoModelForCausalLM,AutoTokenizer
     from peft import PeftModel
@@ -74,7 +75,7 @@ def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
     model.eval()  # Important: dropout must be disabled for policy equality.
     return FiniteActionPolicy(
         model,tokenizer,seed=seed,
-        cfg=FiniteActionConfig(max_prompt_tokens=ctx),
+        cfg=FiniteActionConfig(max_prompt_tokens=ctx,answer_proposer=answer_proposer),
         adapter_path=str(adapter_path),
         model_name=str(model_path),
         max_tool_calls=max_tool_calls,
@@ -156,7 +157,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
 def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           out:Path,seed:int,groups:int,generations:int,updates:int,
           max_steps:int,max_tool_calls:int,max_context:int,
-          learning_rate:float)->dict:
+          learning_rate:float,answer_proposer:str="legacy")->dict:
     if out.exists():raise FileExistsError(out)
     if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
@@ -173,7 +174,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     torch.cuda.manual_seed_all(seed)
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=True,ctx=max_context,
-                       max_tool_calls=max_tool_calls)
+                       max_tool_calls=max_tool_calls,
+                       answer_proposer=answer_proposer)
     model=policy.model
     torch.cuda.reset_peak_memory_stats()
     optimizer=torch.optim.AdamW(
@@ -246,6 +248,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     summary={
         "stage":"real_online_finite_constrained_categorical_grpo_style",
         "policy_class":"one-digit LM action selection from nonoracle legal catalog",
+        "answer_proposer":policy.cfg.answer_proposer,
         "native_TRL_GRPOTrainer":False,"multi_turn_Search_Read_Finish":True,
         "sampling_and_loss_distribution_match":True,
         "original_vLLM_JSON_sampling_used":False,
@@ -275,11 +278,13 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
 
 def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
              out:Path,limit:int,seed:int,max_steps:int,max_tool_calls:int,
-             max_context:int,split:str,greedy:bool=False)->dict:
+             max_context:int,split:str,greedy:bool=False,
+             answer_proposer:str="legacy")->dict:
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=False,ctx=max_context,
                        max_tool_calls=max_tool_calls,
-                       selection_mode="greedy" if greedy else "sample")
+                       selection_mode="greedy" if greedy else "sample",
+                       answer_proposer=answer_proposer)
     config=AgentConfig(max_steps=max_steps,max_tool_calls=max_tool_calls,
                        search_top_k=3)
     summary=evaluate(data,split,policy,out,config=config,
@@ -289,6 +294,7 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
     # evaluation as complete. A greedy probe is NOT on-policy training data.
     extra={
         "policy_class":"finite_constrained_categorical_agent",
+        "answer_proposer":policy.cfg.answer_proposer,
         "selection_mode":policy.selection_mode,
         "source_adapter_sha256":_sha256(adapter_path/"adapter_model.safetensors"),
         "categorical_distribution":(
@@ -323,6 +329,9 @@ def main():
         x.add_argument("--max-steps",type=int,default=6)
         x.add_argument("--max-tool-calls",type=int,default=5)
         x.add_argument("--max-context",type=int,default=2048)
+        x.add_argument("--answer-proposer",choices=["legacy","v2"],
+                       default="legacy",
+                       help="Non-oracle lexical candidate catalog (frozen for A/B)")
     t.add_argument("--dev-manifest",required=True,type=Path)
     t.add_argument("--groups",type=int,default=4)
     t.add_argument("--generations",type=int,default=4)
@@ -335,7 +344,8 @@ def main():
     args=p.parse_args()
     common=dict(data=args.data,model_path=args.model,adapter_path=args.adapter,
                 out=args.out,seed=args.seed,max_steps=args.max_steps,
-                max_tool_calls=args.max_tool_calls,max_context=args.max_context)
+                max_tool_calls=args.max_tool_calls,max_context=args.max_context,
+                answer_proposer=args.answer_proposer)
     if args.command=="train":
         train(**common,dev_manifest=args.dev_manifest,
               groups=args.groups,generations=args.generations,
