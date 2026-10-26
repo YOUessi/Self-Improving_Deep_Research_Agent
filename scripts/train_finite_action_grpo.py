@@ -75,7 +75,8 @@ def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
     return FiniteActionPolicy(
         model,tokenizer,seed=seed,
         cfg=FiniteActionConfig(max_prompt_tokens=ctx),
-        adapter_path=str(adapter_path))
+        adapter_path=str(adapter_path),
+        model_name=str(model_path))
 
 
 def finite_action_update(model,episodes:list[dict],optimizer, *,
