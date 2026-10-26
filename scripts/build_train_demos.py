@@ -133,14 +133,15 @@ def build_train(train_dir:Path, dev_manifest:Path, output:Path,
     convert(raw,data_dir,"train")
     docs,questions=load_dataset(data_dir)
     docmap={d.doc_id:d for d in docs}
-    index=BM25Index(docs)
+    cfg=AgentConfig(max_steps=6,max_tool_calls=5,search_top_k=search_top_k)
+    agent=SearchAgent(docs,TrainOnlyOraclePolicy([]),cfg)
+    index=agent.index  # Build BM25 only once, not per training question.
     traces=[]
     qualified=0
     executed=0
     reasons={}
     def skip(why):
         reasons[why]=reasons.get(why,0)+1
-    cfg=AgentConfig(max_steps=6,max_tool_calls=5,search_top_k=search_top_k)
     for q in questions:
         gold=set(q.supporting_doc_ids)
         if len(gold)!=2:
@@ -177,7 +178,8 @@ def build_train(train_dir:Path, dev_manifest:Path, output:Path,
                 Action("finish",answer=q.gold_answer,citations=(first,second)),
             ]
         qualified+=1
-        trace=SearchAgent(docs,TrainOnlyOraclePolicy(actions),cfg).run(q)
+        agent.policy=TrainOnlyOraclePolicy(actions)
+        trace=agent.run(q)
         executed+=1
         seen=" ".join(s["observation"]["text"] for s in trace.steps if
                       (s.get("observation") or {}).get("kind")=="read")
