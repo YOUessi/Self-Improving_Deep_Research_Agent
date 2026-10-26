@@ -143,3 +143,19 @@ def test_train_holdout_auditor_rejects_training_on_holdout_ids(tmp_path):
     path.write_text(json.dumps(tr))
     with pytest.raises(ValueError,match="trained on heldout"):
         audit_holdout(before,after,source,trained,tmp_path/"bad.json",draws=200)
+
+
+def test_train_holdout_audit_standalone_cli_works_with_only_src_pythonpath():
+    """Previously CI imports passed but `python scripts/X.py` crashed in Tang."""
+    import os
+    import subprocess
+    import sys
+    root=Path(__file__).resolve().parents[1]
+    result=subprocess.run(
+        [sys.executable,str(root/"scripts"/"audit_train_teacher_holdout.py"),
+         "--help"],
+        cwd=root,env={**os.environ,"PYTHONPATH":str(root/"src")},
+        capture_output=True,text=True,timeout=10,
+    )
+    assert result.returncode==0,result.stderr
+    assert "--trained" in result.stdout
