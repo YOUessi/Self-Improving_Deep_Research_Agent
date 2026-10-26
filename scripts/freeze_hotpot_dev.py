@@ -17,7 +17,14 @@ import hashlib
 import json
 from pathlib import Path
 
-from scripts.convert_hotpotqa import convert
+try:
+    from scripts.convert_hotpotqa import convert
+except ModuleNotFoundError as exc:
+    if exc.name != "scripts":
+        raise
+    # Direct CLI invocation 'python scripts/freeze_hotpot_dev.py' puts the
+    # scripts directory (not the repo root) on sys.path.
+    from convert_hotpotqa import convert
 
 
 def _sha(data: bytes) -> str:
