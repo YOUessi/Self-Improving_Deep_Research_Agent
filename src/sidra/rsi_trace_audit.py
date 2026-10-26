@@ -91,13 +91,6 @@ def audit_tool_trace(
             action=Action.from_dict(entry["action"])
         except (TypeError,ValueError,AttributeError,KeyError):
             return failure("malformed_action_record")
-        if action.to_dict()!={
-            **{"kind":action.kind,"query":action.query,"doc_id":action.doc_id,
-               "answer":action.answer,"citations":action.citations},
-        }:
-            # This branch is intentionally harmless (tuple serialization can
-            # vary); real legality follows from Action/from_dict and tool replay.
-            pass
         if action.kind == "finish":
             if "observation" in entry:
                 return failure("finish_has_tool_observation")
