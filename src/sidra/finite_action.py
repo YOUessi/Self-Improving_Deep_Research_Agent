@@ -263,9 +263,13 @@ class FiniteActionPolicy:
                  cfg:FiniteActionConfig|None=None,
                  adapter_path:str|None=None,
                  model_name:str|None=None,
-                 max_tool_calls:int=5):
+                 max_tool_calls:int=5,
+                 selection_mode:str="sample"):
         if max_tool_calls<1:raise ValueError("tool budget must be positive")
+        if selection_mode not in {"sample","greedy"}:
+            raise ValueError("selection mode must be sample or greedy")
         self.max_tool_calls=max_tool_calls
+        self.selection_mode=selection_mode
         self.model=model
         # The shared evaluation manifest serializes model_name as a string;
         # never serialize an actual PEFT model object.
@@ -297,15 +301,30 @@ class FiniteActionPolicy:
             masked_logits=logits[torch.tensor(tokids,device=device)]
             categorical_lp=torch.log_softmax(masked_logits,dim=0)
             prob=torch.exp(categorical_lp)
-            generator=torch.Generator(device=device)
-            generator.manual_seed(self.seed+self.model_calls)
-            index=int(torch.multinomial(prob,num_samples=1,generator=generator).item())
+            # Never let random draws from *previous questions* alter this
+            # question's outcome in a paired before/after comparison.
+            # Stateless keyed RNG: same (seed, question, state) => same draw.
+            seed_payload=json.dumps({
+                "seed":self.seed,"question":question,"remaining":remaining,
+                "observations":observations,
+            },sort_keys=True,ensure_ascii=False,separators=(",",":"))
+            decision_seed=int(hashlib.sha256(
+                seed_payload.encode("utf-8")).hexdigest()[:16],16)&(2**63-1)
+            if self.selection_mode=="greedy":
+                index=int(torch.argmax(prob).item())
+            else:
+                generator=torch.Generator(device=device)
+                generator.manual_seed(decision_seed)
+                index=int(torch.multinomial(prob,num_samples=1,
+                                            generator=generator).item())
         self.completion_tokens+=1
         self.samples.append({
             "prompt_ids":prompt,
             "legal_choice_token_ids":tokids,
             "selected_index":index,
             "selected_token_id":tokids[index],
+            "decision_seed":decision_seed,
+            "selection_mode":self.selection_mode,
             "num_legal_actions":len(candidates),
             "legal_actions":[x.to_dict() for x in candidates],
             "choice_prob":float(prob[index]),
