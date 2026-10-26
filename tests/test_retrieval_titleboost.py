@@ -27,9 +27,16 @@ def test_invalid_bm25_boost_rejected():
 
 
 def test_pilot_sweep_is_frozen(fixture_dir,tmp_path):
+    from sidra.io import load_dataset, save_jsonl
+    docs, questions = load_dataset(fixture_dir)
+    dev = tmp_path / "dev_only"
+    dev.mkdir()
+    save_jsonl(dev / "documents.jsonl", [d.__dict__ for d in docs])
+    save_jsonl(dev / "questions.jsonl",
+               [q.__dict__ for q in questions if q.split == "dev"])
     out=tmp_path/"title.json"
-    report=sweep(fixture_dir,out,boosts=(0.0,0.5,2.0))
+    report=sweep(dev,out,boosts=(0.0,0.5,2.0))
     assert report["chosen_title_boost"] in {0.0,0.5,2.0}
     assert report["partition"].startswith("pilot only")
     assert len(report["results"])==3
-    with pytest.raises(FileExistsError): sweep(fixture_dir,out)
+    with pytest.raises(FileExistsError): sweep(dev,out)
