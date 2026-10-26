@@ -209,3 +209,28 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Likely causes (not yet experimentally isolated):** biased TRAIN oracle action mix favoring search/read, only 40 optimizer updates, 0.6B Base model without native instruction-following ability, no explicit stop/abstention training, unconstrained local Transformers JSON parsing vs constrained vLLM 8B serving. None has yet been proven individually.
 - **Immediate controls:** preserve both full traces and original adapter, do **not** overwrite training outputs, analyze action transition and finish frequency using PILOT only, add explicit completion/stop/error trajectories from TRAIN-only sources, and compare under matched model/decoder settings; report tool-call and token costs.
 - **Status:** OPEN. Actual model weight update succeeded, but no robust positive answer/evidence generalization, GRPO, or recursive RSI gain has yet been established.
+
+
+## P-025 — TRAIN SFT prompt budget and action schema mismatched actual SearchAgent (MITIGATED; capability still unproven)
+
+- **Discovered:** original `src/sidra/sft.py` used `remaining_steps=8-step` while the real Agent has `max_steps=6`; all five Action fields were serialized even for simple Search/Read. TRAIN examples also contained only 22.28% verified Finish and 44.55% Read.
+- **Change:** `scripts/build_stop_curriculum.py` re-exports train-only rows with `remaining_steps=6-step` and per-action minimal JSON. Optional variant weights successful Finish and legitimate empty-last-turn abstain (still TRAIN-only).
+- **Verification:** 69+ CPU tests, no-dev-ID overlap, real two x 40-step LoRA train updates with separate adapter SHA256. See E-013.
+- **Remaining:** format-only SFT got 0/32 verified and budget exhausted 31/32 even with valid action JSON. This interface mismatch fix alone did not solve the algorithmic problem.
+
+## P-026 — Stop-oversampling changed Finish rate but caused cite-before-read errors (EXECUTION SAFETY FIXED; SEMANTICS OPEN)
+
+- **Observed:** stop curriculum Finish 42.5% (vs 22.3% original). With loose on-the-fly read/cite restrictions, stopped Qwen3-0.6B SFT produced premature unsupported citations and **32/32 execution error** on 32 dev pilot questions; old SFT had 29/32 execution error.
+- **Cause:** static JSON action format constrains syntax and string length, but `read.doc_id` was any arbitrary string and `finish.citations` could contain unseen IDs. The model generated structurally legal but tool-invalid actions.
+- **Mitigation:** add gold-blind `observed_document_schema` built ONLY from actual previous search-hit and read observations. Read ID enum is exposed minus already-read IDs; citation ID enum is previously READ only; no hits means no read option. The dependency is independent of gold answer and support labels; tests pass and real vLLM Qwen3 produces valid dynamic actions.
+- **Comparison (PILOT32, no independent evidence gain yet):** old SFT errors fell 29→6 but abstained on 23 tasks; stop SFT errors fell 32→0 and EM rose 0→7/32, yet strictly verified evidence stayed 0/32. Stop SFT on average READ only 1.0 article before finish (premature stop). **Remain OPEN** for full multi-hop support and not just answer-only gains.
+
+## P-027 — First dynamic-document-ID evaluation shell missing SHA assignment (RESOLVED)
+
+- **Observed:** launcher used `SIDRA_GIT_SHA="$sha"` under `set -u` but did not define `sha`, exiting immediately with 'unbound variable'. It produced no test result, did not launch model updates, and did not overwrite any run directory.
+- **Fix:** explicitly pinned `sha=bee64563041df1a6d80414ac4fc2ec8f35972a21` before launching; CPU regression and real matched 32-QA evaluations ran with that exact Github mirror. Original error retained in run history.
+
+## P-028 — Search GRPO is not ready merely because reward components exist (OPEN)
+
+- **Done:** implemented `src/sidra/train_reward.py`: strictly TRAIN-only multi-hop trajectory reward combines legal execution, exact answer, complete READ/cited gold passages, and efficiency BONUS ONLY after verifiable success. Exposes group-normalized advantages; tests reject DEV/TEST gold and cheap empty abstention reward hacking.
+- **Not done:** no model-generated multi-turn reward rollouts with policy log-probs, no GRPO optimizer steps, no Challenger→Solver→Verifier→Trainer model revision cycles, no external seeded replication. Low/constant group rewards will lead to degenerate GRPO advantages; must measure real rollout reward variance before training.
