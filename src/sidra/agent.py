@@ -23,6 +23,9 @@ class AgentConfig:
     search_top_k: int = 3
     max_read_chars: int = 3500
     title_boost: float = 0.0
+    # Optional non-oracle model-facing feedback instead of immediate termination.
+    # Defaults OFF to preserve all previously frozen baseline measurements.
+    recover_unread_citations: bool = False
 
     def __post_init__(self) -> None:
         if min(self.max_steps, self.max_tool_calls, self.search_top_k, self.max_read_chars) < 1:
@@ -66,7 +69,32 @@ class SearchAgent:
                 if action.kind == "finish":
                     unknown = set(action.citations) - read_ids
                     if unknown:
-                        raise ValueError(f"Unverified citations: {sorted(unknown)}; must read before cite")
+                        explanation = f"Unverified citations: {sorted(unknown)}; must read before cite"
+                        if not config.recover_unread_citations:
+                            raise ValueError(explanation)
+                        # The validator only echoes IDs ALREADY emitted by the
+                        # policy and the set of documents ACTUALLY READ. No
+                        # gold answers, support labels or unseen document text.
+                        # Invalid finish consumes a step and an LLM call; it
+                        # never creates a successful answer/citation or free
+                        # evidence and cannot circumvent max_steps.
+                        feedback = {
+                            "kind": "validation_error",
+                            "code": "unread_citations",
+                            "unread_citations": sorted(unknown),
+                            "read_doc_ids": sorted(read_ids),
+                            "instruction": ("You may cite only doc IDs actually "
+                                            "READ. Search/READ additional docs "
+                                            "or finish using only read citations."),
+                        }
+                        entry["observation"] = feedback
+                        entry["validation_failed"] = True
+                        observations.append(feedback)
+                        trace.steps.append(entry)
+                        if step + 1 >= config.max_steps:
+                            trace.termination = "error"
+                            trace.error = "ValueError: " + explanation[:200]
+                        continue
                     trace.answer = action.answer.strip()
                     trace.citations = list(dict.fromkeys(action.citations))
                     trace.termination = "finish" if trace.answer else "abstained"
