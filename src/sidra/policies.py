@@ -115,7 +115,8 @@ class OpenAICompatiblePolicy:
     name = "openai_compatible_tool_agent"
 
     def __init__(self, endpoint: str, model: str, *, key_env: str = "OPENAI_API_KEY",
-                 timeout: int = 90, max_tokens: int = 400):
+                 timeout: int = 90, max_tokens: int = 400,
+                 constrain_actions: bool = False):
         if not endpoint.startswith(("http://", "https://")):
             raise ValueError("Endpoint must use http:// or https://")
         if not model.strip():
@@ -125,6 +126,7 @@ class OpenAICompatiblePolicy:
         self.key_env = key_env
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.constrain_actions = constrain_actions
         self.model_calls = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -144,6 +146,29 @@ class OpenAICompatiblePolicy:
         # vLLM accepts this request-level chat-template setting.
         if "qwen3" in self.model.casefold():
             body["chat_template_kwargs"] = {"enable_thinking": False}
+        # Optional OpenAI/vLLM JSON-schema constraint; never enable silently
+        # for non-schema endpoints. Required by the server only when explicitly
+        # requested through --constrain-actions.
+        if self.constrain_actions:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "sidra_tool_action",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["search", "read", "finish"]},
+                            "query": {"type": "string"},
+                            "doc_id": {"type": "string"},
+                            "answer": {"type": "string"},
+                            "citations": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["kind", "query", "doc_id", "answer", "citations"],
+                        "additionalProperties": False,
+                    },
+                },
+            }
         key = os.getenv(self.key_env, "")
         headers = {"Content-Type": "application/json"}
         if key:
