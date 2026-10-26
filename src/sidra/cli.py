@@ -18,7 +18,7 @@ def main() -> None:
     ev = sub.add_parser("eval", help="Run baseline and store immutable trace/metrics/manifest directory")
     ev.add_argument("--dataset", required=True, type=Path)
     ev.add_argument("--split", choices=["train", "dev", "test"], default="dev")
-    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers"], required=True)
+    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers", "grounded-openai"], required=True)
     ev.add_argument("--endpoint", help="OpenAI-compatible /v1/chat/completions URL")
     ev.add_argument("--model", help="Model served at --endpoint")
     ev.add_argument("--key-env", default="OPENAI_API_KEY")
@@ -26,6 +26,8 @@ def main() -> None:
     ev.add_argument("--max-steps", type=int, default=8)
     ev.add_argument("--max-tool-calls", type=int, default=7)
     ev.add_argument("--search-top-k", type=int, default=3)
+    ev.add_argument("--title-boost", type=float, default=0.0,
+                    help="Pilot-selected fixed extra BM25 title overlap weight")
     ev.add_argument("--limit", type=int, default=0)
     ev.add_argument("--offset", type=int, default=0,
                     help="Skip this many sorted items within the frozen split")
@@ -36,7 +38,13 @@ def main() -> None:
     ev.add_argument("--offload-gpu-gib", type=int, default=0,
                     help="Opt-in BF16 GPU/CPU offload cap; 0 means GPU-only")
     ev.add_argument("--offload-dir", type=str, default=None)
+    ev.add_argument("--adapter-path", type=str, default=None,
+                    help="Load a previously TRAINED local PEFT/LoRA adapter for Transformers evaluation")
     ev.add_argument("--min-citations", type=int, default=2)
+    ev.add_argument("--min-evidence-reads", type=int, default=2,
+                    help="Minimum independent read sources for guarded policy")
+    ev.add_argument("--no-revise-citations", action="store_true",
+                    help="Disable single optional evidence-grounded answer revision")
     export = sub.add_parser("export-sft", help="Export only fully verified TRAIN traces")
     export.add_argument("--dataset", type=Path, required=True)
     export.add_argument("--traces", type=Path, required=True)
@@ -47,6 +55,8 @@ def main() -> None:
         return
     if args.limit < 0 or args.offset < 0:
         parser.error("--limit and --offset must be >= 0")
+    if args.adapter_path and args.policy not in {"transformers","multi-transformers"}:
+        parser.error("--adapter-path requires a local Transformers policy")
     if args.policy.startswith("fixture-") and "fixture" not in (args.dataset / "README.md").read_text(
             encoding="utf-8"):
         parser.error("Fixture policies are strictly for generated synthetic fixtures")
@@ -60,7 +70,8 @@ def main() -> None:
         from sidra.policies_transformers import TransformersPolicy
         policy = TransformersPolicy(
             args.model, max_new_tokens=args.max_new_tokens,
-            offload_gpu_gib=args.offload_gpu_gib, offload_dir=args.offload_dir)
+            offload_gpu_gib=args.offload_gpu_gib, offload_dir=args.offload_dir,
+            adapter_path=args.adapter_path)
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
@@ -70,8 +81,15 @@ def main() -> None:
     if args.policy.startswith("multi-"):
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
+    elif args.policy.startswith("grounded-"):
+        from sidra.grounded_policy import GroundedPolicy
+        policy = GroundedPolicy(
+            policy, min_reads=args.min_evidence_reads,
+            revise_citations=not args.no_revise_citations)
     config = AgentConfig(max_steps=args.max_steps,
-                         max_tool_calls=args.max_tool_calls, search_top_k=args.search_top_k)
+                         max_tool_calls=args.max_tool_calls,
+                         search_top_k=args.search_top_k,
+                         title_boost=args.title_boost)
     result = evaluate(args.dataset, args.split, policy, args.out, config,
                       args.limit, args.seed, args.offset)
     print(json.dumps(result, indent=2))

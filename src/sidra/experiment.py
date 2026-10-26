@@ -73,6 +73,8 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         label = "smoke_fixture"
     elif synthetic:
         label = "pretrained_model_on_synthetic_smoke"
+    elif getattr(policy, "adapter_path", None):
+        label = "pretrained_plus_train_only_sft_adapter_evaluation"
     else:
         label = "untrained_baseline"
     manifest = {
@@ -88,6 +90,8 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         "git_commit": git_sha(), "agent_config": asdict(agent.config),
         "sample_count": len(selected), "evaluation_offset": offset,
         "no_gpu_training_claimed": True,
+        "no_weight_updates_in_this_evaluation": True,
+        "adapter_path": getattr(policy, "adapter_path", None),
         "agent_roles": ["planner", "researcher", "solver", "evidence_audit"]
                        if policy.name.startswith("multi_role_") else ["single_policy"],
         "minimum_distinct_citations": getattr(policy, "min_citations", None),

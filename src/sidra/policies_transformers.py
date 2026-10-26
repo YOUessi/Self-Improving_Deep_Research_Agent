@@ -16,7 +16,8 @@ class TransformersPolicy:
     name = "transformers_pretrained_agent"
 
     def __init__(self, model: str, max_new_tokens: int = 280,
-                 offload_gpu_gib: int = 0, offload_dir: str | None = None):
+                 offload_gpu_gib: int = 0, offload_dir: str | None = None,
+                 adapter_path: str | None = None):
         try:
             # Tang has Pillow 9.0.1. Transformers 4.57 image_utils references
             # PIL.Image.Resampling which was introduced in newer Pillow.
@@ -35,6 +36,7 @@ class TransformersPolicy:
             raise RuntimeError("CUDA is unavailable: use GPU Tang or the HTTP endpoint policy")
         self.torch = torch
         self.model_name = model
+        self.adapter_path = adapter_path
         self.max_new_tokens = max_new_tokens
         self.model_calls = 0
         self.prompt_tokens = 0
@@ -55,6 +57,21 @@ class TransformersPolicy:
         else:
             self.model = AutoModelForCausalLM.from_pretrained(
                 model, local_files_only=True, dtype="auto").to("cuda").eval()
+        if adapter_path:
+            try:
+                from peft import PeftModel
+            except ImportError as exc:
+                raise RuntimeError("PEFT is required to evaluate an SFT adapter") from exc
+            from pathlib import Path
+            adapter_root = Path(adapter_path)
+            if not (adapter_root / "adapter_config.json").is_file():
+                raise ValueError("Missing adapter_config.json for SFT checkpoint")
+            if not ((adapter_root / "adapter_model.safetensors").is_file()
+                    or (adapter_root / "adapter_model.bin").is_file()):
+                raise ValueError("Missing LoRA adapter weights")
+            self.model = PeftModel.from_pretrained(
+                self.model, str(adapter_root), local_files_only=True,
+                is_trainable=False).eval()
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         return self.decide_with_system(question, observations, remaining, SYSTEM)

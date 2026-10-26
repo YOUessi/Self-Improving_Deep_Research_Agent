@@ -26,7 +26,8 @@ def frozen_selection(items, *, limit: int, seed: int):
 
 def evaluate_retrieval(data_dir: Path, output_dir: Path, *, split: str = "dev",
                        limit: int = 24, seed: int = 42,
-                       ks: tuple[int, ...] = (1, 3, 5, 10)) -> dict:
+                       ks: tuple[int, ...] = (1, 3, 5, 10),
+                       title_boost: float = 0.0) -> dict:
     docs, questions = load_dataset(data_dir)
     selected = frozen_selection([q for q in questions if q.split == split],
                                 limit=limit, seed=seed)
@@ -35,7 +36,7 @@ def evaluate_retrieval(data_dir: Path, output_dir: Path, *, split: str = "dev",
     ks = tuple(sorted(set(ks)))
     if not ks or any(k < 1 for k in ks):
         raise ValueError("top-k values must be positive")
-    index = BM25Index(docs)
+    index = BM25Index(docs, title_boost=title_boost)
     rows = []
     for question in selected:
         hits = index.search(question.question, scope=question.scope, k=max(ks))
@@ -53,7 +54,7 @@ def evaluate_retrieval(data_dir: Path, output_dir: Path, *, split: str = "dev",
     summary = {"count": len(rows), "split": split, "dataset": str(data_dir),
                "seed": seed, "selection": "SHA256(seed:question_id) ascending",
                "scope": "per-question distractor passages, NOT full Wikipedia",
-               "top_k_values": list(ks)}
+               "top_k_values": list(ks), "title_boost": title_boost}
     for k in ks:
         summary[f"complete_support_at_{k}"] = mean(row[f"complete_support_at_{k}"] for row in rows)
         nums = [row[f"support_recall_at_{k}"] for row in rows
@@ -71,9 +72,11 @@ def main() -> None:
     p.add_argument("--split", choices=("train", "dev", "test"), default="dev")
     p.add_argument("--limit", type=int, default=24)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--title-boost", type=float, default=0.0)
     args = p.parse_args()
     print(json.dumps(evaluate_retrieval(args.dataset, args.out, split=args.split,
-                                        limit=args.limit, seed=args.seed), indent=2))
+                                        limit=args.limit, seed=args.seed,
+                                        title_boost=args.title_boost), indent=2))
 
 
 if __name__ == "__main__":
