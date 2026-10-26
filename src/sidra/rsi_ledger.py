@@ -21,6 +21,8 @@ import re
 from dataclasses import asdict,dataclass
 from pathlib import Path
 
+from sidra.agent import AgentConfig
+from sidra.rsi_trace_audit import audit_tool_trace
 from sidra.schema import AgentTrace,Document,Question
 from sidra.train_reward import score_train_rollout
 
@@ -111,7 +113,8 @@ def freeze_train_challenges(
 
 def verify_train_traces(
     challenges:list[Challenge],traces:list[AgentTrace],
-    train_qmap:dict[str,Question],documents:dict[str,Document])->dict:
+    train_qmap:dict[str,Question],documents:dict[str,Document],
+    *,config:AgentConfig|None=None)->dict:
     by_challenge={c.challenge_id:c for c in challenges}
     if len(by_challenge)!=len(challenges):
         raise ValueError("duplicate challenge IDs")
@@ -140,12 +143,26 @@ def verify_train_traces(
             supporting_doc_ids=q.supporting_doc_ids,
             split="train",scope=q.scope,
         )
-        reward=score_train_rollout(comparison,tr,documents)
+        # SECURITY: evaluator metrics trust the supplied trace; replay the
+        # entire gold-blind SearchAgent tool timeline against the immutable
+        # source corpus before considering TRAIN-only reward labels.
+        audit=audit_tool_trace(comparison,tr,list(documents.values()),config=config)
+        if not audit.structurally_valid or not audit.complete_legal_finish:
+            evaluated.append({
+                "challenge_id":c.challenge_id,
+                "verdict":"invalid_or_incomplete_tool_trace",
+                "eligible_for_training":False,
+                "tool_integrity":audit.as_dict(),
+            })
+            continue
+        reward=score_train_rollout(comparison,tr,documents,
+                                  max_tool_calls=(config or AgentConfig()).max_tool_calls)
         evaluated.append({
             "challenge_id":c.challenge_id,
             "verdict":"verified_train" if reward.strict_outcome else "not_verified",
             "eligible_for_training":bool(reward.strict_outcome),
             "reward":reward.as_dict(),
+            "tool_integrity":audit.as_dict(),
         })
     return {
         "n":len(evaluated),
