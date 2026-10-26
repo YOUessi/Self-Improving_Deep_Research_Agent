@@ -15,7 +15,8 @@ from sidra.schema import Action
 class TransformersPolicy:
     name = "transformers_pretrained_agent"
 
-    def __init__(self, model: str, max_new_tokens: int = 280):
+    def __init__(self, model: str, max_new_tokens: int = 280,
+                 offload_gpu_gib: int = 0, offload_dir: str | None = None):
         try:
             # Tang has Pillow 9.0.1. Transformers 4.57 image_utils references
             # PIL.Image.Resampling which was introduced in newer Pillow.
@@ -35,11 +36,25 @@ class TransformersPolicy:
         self.torch = torch
         self.model_name = model
         self.max_new_tokens = max_new_tokens
-        # local_files_only prevents implicit network / uncaught model changes.
+        self.model_calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        # Offload is optional for full 8B BF16 on a 16GB GPU. The AWQ/vLLM
+        # serving path remains the preferred high-throughput option.
         self.tokenizer = AutoTokenizer.from_pretrained(model, local_files_only=True)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model, local_files_only=True, dtype="auto",
-        ).to("cuda").eval()
+        opts = {}
+        if offload_gpu_gib:
+            if offload_gpu_gib < 1:
+                raise ValueError("offload_gpu_gib must be positive")
+            opts = {"device_map": "auto",
+                    "max_memory": {0: f"{offload_gpu_gib}GiB", "cpu": "22GiB"}}
+            if offload_dir:
+                opts["offload_folder"] = offload_dir
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model, local_files_only=True, dtype="auto", **opts).eval()
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model, local_files_only=True, dtype="auto").to("cuda").eval()
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         return self.decide_with_system(question, observations, remaining, SYSTEM)
@@ -62,11 +77,14 @@ class TransformersPolicy:
             messages, tokenize=False, add_generation_prompt=True, **template_options
         )
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        self.model_calls += 1
+        self.prompt_tokens += int(inputs["input_ids"].shape[1])
         with self.torch.inference_mode():
             output_ids = self.model.generate(
                 **inputs, max_new_tokens=self.max_new_tokens, do_sample=False,
                 pad_token_id=self.tokenizer.eos_token_id,
             )
+        self.completion_tokens += int(output_ids.shape[-1] - inputs["input_ids"].shape[1])
         completion = self.tokenizer.decode(
             output_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
         )
