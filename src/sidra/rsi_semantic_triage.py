@@ -22,6 +22,8 @@ import re
 from dataclasses import asdict,dataclass
 from urllib.request import Request,urlopen
 
+from sidra.rsi_semantic_negative_gate import negative_flags
+
 
 PASS_VERDICT="quote_extracted_unlabelled_pending_semantic_verification"
 _ALLOWED={"supported","unsupported","contradicted"}
@@ -200,6 +202,7 @@ def consensus(packet:ReviewPacket,reviews:list[dict])->dict:
         raise ValueError("must independently re-review with reversed source order")
     status=[x.get("machine_review_status") for x in reviews]
     verdicts=[x.get("claimed_verdict") for x in reviews]
+    negative_checks:tuple[str,...]=()
     if "invalid" in status:
         conclusion="invalid_reviewer_output"
     elif "contradicted" in verdicts:
@@ -209,7 +212,12 @@ def consensus(packet:ReviewPacket,reviews:list[dict])->dict:
     elif verdicts==["supported","supported"] and (
         reviews[0]["bridge_entity"].casefold()==
         reviews[1]["bridge_entity"].casefold()):
-        conclusion="needs_independent_semantic_label_review"
+        negative_checks=negative_flags(
+            packet.question,packet.answer,packet.evidence,
+            reviews[0]["bridge_entity"],
+        )
+        conclusion=("flagged_deterministic_premise_gap" if negative_checks
+                    else "needs_independent_semantic_label_review")
     else:
         conclusion="unstable_reviewer_judgment"
     return {
@@ -220,6 +228,7 @@ def consensus(packet:ReviewPacket,reviews:list[dict])->dict:
         "review_proof_integrity_status":status,
         "reviewer_output_sha256":[x.get("review_sha256") for x in reviews],
         "conclusion":conclusion,
+        "deterministic_negative_flags":list(negative_checks),
         "review_notes":[x.get("reason","") for x in reviews],
         "model_positive_review_is_ground_truth":False,
         "authorized_train_label_count":0,
