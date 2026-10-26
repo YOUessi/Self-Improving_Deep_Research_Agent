@@ -38,6 +38,8 @@ def main() -> None:
     ev.add_argument("--offload-gpu-gib", type=int, default=0,
                     help="Opt-in BF16 GPU/CPU offload cap; 0 means GPU-only")
     ev.add_argument("--offload-dir", type=str, default=None)
+    ev.add_argument("--adapter-path", type=str, default=None,
+                    help="Load a previously TRAINED local PEFT/LoRA adapter for Transformers evaluation")
     ev.add_argument("--min-citations", type=int, default=2)
     ev.add_argument("--min-evidence-reads", type=int, default=2,
                     help="Minimum independent read sources for guarded policy")
@@ -53,6 +55,8 @@ def main() -> None:
         return
     if args.limit < 0 or args.offset < 0:
         parser.error("--limit and --offset must be >= 0")
+    if args.adapter_path and args.policy not in {"transformers","multi-transformers"}:
+        parser.error("--adapter-path requires a local Transformers policy")
     if args.policy.startswith("fixture-") and "fixture" not in (args.dataset / "README.md").read_text(
             encoding="utf-8"):
         parser.error("Fixture policies are strictly for generated synthetic fixtures")
@@ -66,7 +70,8 @@ def main() -> None:
         from sidra.policies_transformers import TransformersPolicy
         policy = TransformersPolicy(
             args.model, max_new_tokens=args.max_new_tokens,
-            offload_gpu_gib=args.offload_gpu_gib, offload_dir=args.offload_dir)
+            offload_gpu_gib=args.offload_gpu_gib, offload_dir=args.offload_dir,
+            adapter_path=args.adapter_path)
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
