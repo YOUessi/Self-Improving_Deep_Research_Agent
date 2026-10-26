@@ -147,3 +147,12 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Diagnosis:** direct PyPI wheel download was severely throttled, whereas Aliyun PyPI mirror returned fast partial content. This is a package distribution speed issue, not evidence that AWQ weights are damaged.
 - **Mitigation:** terminated the stalled pip operation (not the other project's install), downloaded the exact z3 wheel from Aliyun, verified **SHA256=7e103a6f203f505b8b8b8e5c931cc407c95b61556512d4921c1ddc0b3f41b08e** against PyPI metadata, installed it to SIDRA's isolated venv with `--no-deps`, and restarted vLLM installation with `--index-url https://mirrors.aliyun.com/pypi/simple/`.
 - **Remaining:** vLLM import, CUDA/AWQ compatibility and actual model inference must pass before closing the issue. Do not claim the model has run yet.
+
+
+### P-017 follow-up — Recover vLLM 0.31 wheel from verified local pip artifact
+
+- PyPI's official `vllm==0.31.0` wheel is **320,555,825 bytes**, official SHA-256 `39132b433967f0962d03d8a5f633b9bee6b32708f566c7d5637b79f8d0ef3433`.
+- Tang retained two previous fully downloaded copies under `/tmp/pip-unpack-*/vllm*.whl`; SHA-256 matched. Copied one to SIDRA `~/experiments/sidra_m3/wheels/`, installed with `pip install --no-deps` into **only** `~/experiments/sidra_m3/.venv_vllm`.
+- Slow default PyPI `z3-solver` download was mitigated using Aliyun mirror; wheel SHA-256 was checked against PyPI metadata (P-017 original).
+- `pip install vllm==0.31.0` was resumed with Aliyun as the explicit index to complete dependencies; package import, CUDA compatibility and Qwen3-AWQ serve are **not yet validated**. The large optional dependency closure can take longer than the base wheel.
+- Do not silently consider a `pip --no-deps` wheel install to mean a working inference environment. Check `pip check`, `import vllm` and actual inference separately.
