@@ -101,7 +101,27 @@ def test_ambiguous_bronson_same_string_still_never_yields_label():
         supported(bridge="Bronson",proof=list(p.evidence)),p)
     assert hallucination["machine_review_status"]=="structurally_witnessed_unlabelled"
     report=consensus(p,[hallucination,hallucination])
-    assert report["conclusion"]=="needs_independent_semantic_label_review"
+    assert report["conclusion"]=="flagged_deterministic_premise_gap"
+    assert "bridge_component_of_larger_named_entity" in report["deterministic_negative_flags"]
+    assert "company_base_city_not_in_population_evidence" in report["deterministic_negative_flags"]
+    assert report["authorized_train_label_count"]==0
+
+
+def test_absent_championship_claim_rejected_even_with_shared_team():
+    c=candidate(
+        question="Which NBA team did the player win a championship with?",
+        answer="San Antonio Spurs",
+        quotes=[
+            {"doc_id":"one","quote":"The player is a member of the San Antonio Spurs team."},
+            {"doc_id":"two","quote":"The San Antonio Spurs featured three basketball players."},
+        ],
+    )
+    p=build_review_packet(c)
+    r=verify_review_response(supported(bridge="San Antonio Spurs",proof=c["evidence"]),p)
+    assert r["machine_review_status"]=="structurally_witnessed_unlabelled"
+    report=consensus(p,[r,r])
+    assert report["conclusion"]=="flagged_deterministic_premise_gap"
+    assert "championship_relation_absent_from_both_quotes" in report["deterministic_negative_flags"]
     assert report["authorized_train_label_count"]==0
 
 
