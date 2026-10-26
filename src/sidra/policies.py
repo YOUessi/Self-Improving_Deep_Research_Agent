@@ -125,6 +125,9 @@ class OpenAICompatiblePolicy:
         self.key_env = key_env
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.model_calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         return self.decide_with_system(question, observations, remaining, SYSTEM)
@@ -137,12 +140,17 @@ class OpenAICompatiblePolicy:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
         ], "temperature": 0.0, "max_tokens": self.max_tokens}
+        # Qwen3 thinking mode consumes tokens before emitting JSON actions.
+        # vLLM accepts this request-level chat-template setting.
+        if "qwen3" in self.model.casefold():
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         key = os.getenv(self.key_env, "")
         headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
         req = urllib.request.Request(self.endpoint, data=json.dumps(body).encode(), headers=headers,
                                      method="POST")
+        self.model_calls += 1
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 packet = json.load(response)
@@ -151,6 +159,9 @@ class OpenAICompatiblePolicy:
             raise RuntimeError(f"model endpoint HTTP {exc.code}") from None
         except urllib.error.URLError:
             raise RuntimeError("model endpoint unavailable") from None
+        usage = packet.get("usage") or {}
+        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        self.completion_tokens += int(usage.get("completion_tokens") or 0)
         message = packet["choices"][0]["message"]["content"]
         if not isinstance(message, str):
             raise ValueError("Model returned non-string content")
