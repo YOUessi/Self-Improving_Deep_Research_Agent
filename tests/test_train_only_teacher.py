@@ -6,7 +6,7 @@ import pytest
 
 from scripts.build_and_fit_train_teacher import (
     TrainOnlyOracleTeacher,make_teacher_data,require_train_only,
-    _encode_teacher_rows,
+    _encode_teacher_rows,choose_balanced_teacher_actions,
 )
 from sidra.agent import SearchAgent,AgentConfig
 from sidra.finite_action import FiniteActionConfig,build_legal_actions,action_prompt
@@ -120,3 +120,25 @@ def test_teacher_dataset_never_uses_dev_gold_in_label_generation(tmp_path):
     with pytest.raises(ValueError,match="overlap"):
         make_teacher_data(data,manifest,tmp_path/"blocked",question_limit=4)
     assert not (tmp_path/"blocked").exists()
+
+
+def test_short_teacher_warmstart_balances_three_action_stages():
+    # Regression: old 96-step question-depth batching used 96 SEARCH labels
+    # and accidentally trained no READ or FINISH selection.
+    rows=[
+        {"question_id":f"q{i:03d}","target_kind":kind,
+         "target_index":0,"marker":i}
+        for i in range(150)
+        for kind in ("search","read","finish")
+    ]
+    picked=choose_balanced_teacher_actions(rows,seed=43,steps=96)
+    from collections import Counter
+    assert Counter(x["target_kind"] for x in picked)=={
+        "search":32,"read":32,"finish":32}
+    assert picked==choose_balanced_teacher_actions(
+        list(reversed(rows)),seed=43,steps=96)
+    assert len(set((x["question_id"],x["target_kind"]) for x in picked))==96
+    with pytest.raises(ValueError,match="missing required"):
+        choose_balanced_teacher_actions(
+            [x for x in rows if x["target_kind"]!="finish"],
+            seed=43,steps=30)
