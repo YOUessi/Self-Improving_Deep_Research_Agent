@@ -284,8 +284,28 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
                        search_top_k=3)
     summary=evaluate(data,split,policy,out,config=config,
                      limit=limit,seed=seed)
-    # Standard eval manifest describes the underlying adapter as SFT, but the
-    # actual policy is categorical on the forward logits, NOT JSON generation.
+    # The generic manifest identifies the adapter, but does not explain the
+    # *decoder distribution*; write this mandatory companion before accepting
+    # evaluation as complete. A greedy probe is NOT on-policy training data.
+    extra={
+        "policy_class":"finite_constrained_categorical_agent",
+        "selection_mode":policy.selection_mode,
+        "source_adapter_sha256":_sha256(adapter_path/"adapter_model.safetensors"),
+        "categorical_distribution":(
+            "Softmax over the current state's legal one-token action IDs; "
+            "all other vocab IDs have probability zero."
+        ),
+        "random_seed_keying":(
+            "For sampling only: SHA256(seed, question, remaining steps, "
+            "actual prior tool observations); decoupled from previous tasks."
+        ),
+        "trained_on_eval_gold":False,
+        "test_scope":"public DEV pilot, not sealed final-B160",
+        "tool_budget_max":max_tool_calls,
+        "step_budget_max":max_steps,
+    }
+    (out/"FINITE_ACTION_POLICY.json").write_text(
+        json.dumps(extra,indent=2,ensure_ascii=False)+"\\n")
     return summary
 
 
