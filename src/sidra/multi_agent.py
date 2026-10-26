@@ -38,13 +38,23 @@ class MultiAgentPolicy:
         self.last_role = ""
         self.last_verification = None
         self.last_model_calls = 0
+        self.model_calls = 0
 
     def _call(self, role: str, question: str, observations: list[dict], remaining: int) -> Action:
         self.last_model_calls += 1
+        self.model_calls += 1
         role_decide = getattr(self.model_policy, "decide_with_system", None)
         if callable(role_decide):
             return role_decide(question, observations, remaining, SYSTEM + "\n" + ROLE_GUIDANCE[role])
         return self.model_policy.decide(question, observations, remaining)
+
+    @property
+    def prompt_tokens(self) -> int:
+        return int(getattr(self.model_policy, "prompt_tokens", 0))
+
+    @property
+    def completion_tokens(self) -> int:
+        return int(getattr(self.model_policy, "completion_tokens", 0))
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         self.last_verification = None
