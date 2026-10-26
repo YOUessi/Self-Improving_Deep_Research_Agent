@@ -215,3 +215,33 @@ def test_catalog_prevents_search_or_read_after_tool_budget_hit():
     assert any(a.kind=="search" for a in notmax)
     with pytest.raises(ValueError,match="tool budget"):
         build_legal_actions("When?",obs,max_tool_calls=0)
+
+
+def test_rng_is_keyed_by_local_state_not_previous_questions():
+    torch,m,tok=_toy_objects()
+    seq=FiniteActionPolicy(m,tok,seed=222,selection_mode="sample")
+    initial=seq.decide("Where is Mason Bridge?",[],6).to_dict()
+    first=seq.samples[-1]
+    seq.decide("Which year was the bridge opened?",[],6)
+    again=seq.decide("Where is Mason Bridge?",[],6).to_dict()
+    last=seq.samples[-1]
+    assert initial==again
+    assert first["decision_seed"]==last["decision_seed"]
+    assert first["selected_index"]==last["selected_index"]
+    assert first["sampled_logprob"]==pytest.approx(last["sampled_logprob"])
+
+
+def test_greedy_decisions_are_not_passed_off_as_on_policy_samples():
+    torch,m,tok=_toy_objects()
+    greedy=FiniteActionPolicy(m,tok,seed=34,selection_mode="greedy")
+    greedy.decide("What city was he born in?",[],6)
+    sample=greedy.samples[0]
+    assert sample["selection_mode"]=="greedy"
+    assert sample["selected_index"]==sample["num_legal_actions"]-1 or (
+        sample["selected_index"]>=0)
+    opt=torch.optim.AdamW(m.parameters(),lr=1e-3)
+    with pytest.raises(ValueError,match="off-policy"):
+        finite_action_update(
+            m,[{"advantage":1.0,"action_samples":[sample]}],opt)
+    with pytest.raises(ValueError,match="selection mode"):
+        FiniteActionPolicy(m,tok,selection_mode="invalid")
