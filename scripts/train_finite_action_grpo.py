@@ -305,7 +305,7 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
         "step_budget_max":max_steps,
     }
     (out/"FINITE_ACTION_POLICY.json").write_text(
-        json.dumps(extra,indent=2,ensure_ascii=False)+"\\n")
+        json.dumps(extra,indent=2,ensure_ascii=False)+"\n")
     return summary
 
 
