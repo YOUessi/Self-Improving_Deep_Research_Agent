@@ -8,7 +8,7 @@ Never accept DEV/TEST, eval-A64 or final-B160; no network or GPU execution.
 
 Example:
  CUDA_VISIBLE_DEVICES='' HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \\
- PYTHONPATH=src python scripts/m7_train_semantic_nli_audit.py \\
+ PYTHONPATH=src:. python scripts/m7_train_semantic_nli_audit.py \\
   --dataset ~/experiments/sidra_m4/data/train_oracle1024_seed43/converted \\
   --original-train ~/experiments/sidra_m4/data/train_oracle1024_seed43/original_train_subset.json \\
   --rollouts ~/experiments/sidra_m6/results/real_train_rollouts12x4_stop/rollouts_train.jsonl \\
