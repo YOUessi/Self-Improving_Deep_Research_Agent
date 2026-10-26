@@ -250,8 +250,12 @@ class FiniteActionPolicy:
 
     def __init__(self,model,tokenizer, *,seed:int=43,
                  cfg:FiniteActionConfig|None=None,
-                 adapter_path:str|None=None):
+                 adapter_path:str|None=None,
+                 model_name:str|None=None):
         self.model=model
+        # The shared evaluation manifest serializes model_name as a string;
+        # never serialize an actual PEFT model object.
+        self.model_name=model_name or "finite_action_in_memory_model"
         self.tokenizer=tokenizer
         self.seed=seed
         self.cfg=cfg or FiniteActionConfig()
