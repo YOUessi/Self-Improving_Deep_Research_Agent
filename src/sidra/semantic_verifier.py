@@ -90,25 +90,25 @@ def question_answer_hypothesis(question:str, answer:str)->str|None:
     # relation instead of inventing one ("of what company since 2006?" ->
     # "of <answer> since 2006."). This never uses a gold reference, and
     # deliberately declines competing WH clauses / unsupported grammar.
-    interrogatives=re.findall(r"\\b(?:what|which|who|where|when|whose)\\b",q,flags=re.I)
+    interrogatives=re.findall(r"\b(?:what|which|who|where|when|whose)\b",q,flags=re.I)
     if len(interrogatives)!=1 or interrogatives[0].casefold() not in {"what","which"}:
         return None
     noun_wh=re.search(
-        r"\\b(?:what|which)\\s+(?:[a-z0-9-]+\\s+){0,4}"
-        r"(?:company|year|region|country|city|state|adventure|composer|parents|team)\\b",
+        r"\b(?:what|which)\s+(?:[a-z0-9-]+\s+){0,4}"
+        r"(?:company|year|region|country|city|state|adventure|composer|parents|team)\b",
         q,flags=re.I)
     if noun_wh is None:
         return None
     # Basic subject/verb gate blocks malformed fragments and "which of ...".
     if not re.search(
-        r"\\b(?:was|were|is|are|has|have|had|plays|played|ran|features|"
+        r"\b(?:was|were|is|are|has|have|had|plays|played|ran|features|"
         r"made|led|founded|born|owned|released|created|located|won|wrote|"
-        r"received|became|directed|chaired|contains|includes)\\b",
+        r"received|became|directed|chaired|contains|includes)\b",
         q,flags=re.I):
         return None
     statement=(q[:noun_wh.start()]+a+q[noun_wh.end():]).strip()
     if ("?" in statement or len(statement)>700 or
-        re.search(r"\\b(?:what|which|who|where|when|whose)\\b",statement,flags=re.I)):
+        re.search(r"\b(?:what|which|who|where|when|whose)\b",statement,flags=re.I)):
         return None
     return statement[0].upper()+statement[1:]+"."
 
