@@ -234,3 +234,28 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 
 - **Done:** implemented `src/sidra/train_reward.py`: strictly TRAIN-only multi-hop trajectory reward combines legal execution, exact answer, complete READ/cited gold passages, and efficiency BONUS ONLY after verifiable success. Exposes group-normalized advantages; tests reject DEV/TEST gold and cheap empty abstention reward hacking.
 - **Not done:** no model-generated multi-turn reward rollouts with policy log-probs, no GRPO optimizer steps, no Challenger→Solver→Verifier→Trainer model revision cycles, no external seeded replication. Low/constant group rewards will lead to degenerate GRPO advantages; must measure real rollout reward variance before training.
+
+
+## P-031 — Second-hop query retrieval gain did not translate to Agent answer gain (OPEN)
+
+- **Observed on DEV pilot32:** deterministic entity-bridge re-search from observed top1 text raised available both-support passages from 14/32 to 22/32, but executing the same strategy with the real Qwen3-0.6B stop SFT and grounded guard worsened answer EM 6/32→3/32 while strict verified remained 2/32. Mean tools increased 3.1875→4.0; the extra search changed the model's reasoning horizon and available finish budget.
+- **Cause:** retrieval coverage alone does not enforce choosing the correct second source or composing a correct answer. Proposed bridge entities can be irrelevant or overly long. Neither DEV gold nor hidden document titles were used by the model to select candidates.
+- **Decision:** keep `BridgeGroundedPolicy` experimental and disabled by default; preserve negative run and avoid opening sealed final-B160. Analyze relevance and next-hop read selection using TRAIN and DEV pilot only.
+
+## P-032 — TRAIN rollouts show sparse and often constant group rewards (OPEN)
+
+- **Measured, not simulated:** Qwen3-0.6B stop LoRA sampled 12 TRAIN questions × 4 rollouts (48 episodes), temperature0.75: group reward variable 5/12, fully verified success only 1/48. Another 8×4 TRAIN run at temperature0.85: variable groups 2/8, fully verified 0/32. Both executed actual BM25 search/read/finish with a vLLM action schema and a gold-blind policy; gold TRAIN labels were used only to compute terminal rewards.
+- **Risk:** GRPO group advantages vanish for constant-reward groups; training can overfit cheap tool/legal-action rewards without improving answer quality. Do not compensate by injecting DEV support IDs or artificial Oracle completions into rollouts.
+- **Mitigation:** preserve sampled group logs and reward distributions, use TRAIN-only adaptive question sampling and better partially verifiable multi-hop outcomes, then replicate under several seeds and models.
+
+## P-033 — vLLM constrained-generation probabilities differ from replay probability model (OPEN, research validity)
+
+- **Observed:** a one-step LoRA update using 24 sampled assistant action strings and 840 action tokens completed with nonzero gradient; no tool-observation tokens were labels, adapter SHA changed. However inference used vLLM XGrammar JSON-Schema-constrained sampling while replay computed *raw unconstrained Transformers log-probs*. The two distributions are not identical.
+- **Status:** explicitly named `GRPO-style group-relative clipped REPLAY PILOT`, **NOT standard on-policy Agentic GRPO**. One optimizer update does not prove reward improvement. The original model reward signal was mostly low/constant and the replay uses only two variable TRAIN groups.
+- **Fix required:** either integrate a TRL/verl stateful tool environment with matched log-probs and tool-response masks, or ensure the same constrained action policy distribution and reference/updated log-probabilities in a true on-policy loop; then compare TRAIN multi-hop rewards and frozen public DEV with independent seeds.
+- **Audit hardening:** `scripts/replay_masked_grpo_pilot.py` now verifies every sampled question ID and question text against the original converted TRAIN dataset, not merely against a DEV exclusion list. Existing initial pilot came from an already train-only sampler; future optimizer invocations use this stronger gate.
+
+## P-034 — One initial vLLM pilot-evaluation shell had malformed error-branch spacing (RESOLVED)
+
+- **Observed:** a one-line shell launcher placed `{echo` after `||`, causing a shell syntax error before any Agent evaluation began; no result directories were written.
+- **Fix:** corrected to `|| { echo ...; ...; }`, pinned canonical GitHub SHA, ran the paired same-vLLM stop-vs-replay evaluation with unique output directories. Preserve original launch error in remote process history.
