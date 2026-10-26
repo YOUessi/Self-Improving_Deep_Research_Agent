@@ -16,7 +16,7 @@ def _s(kind,obs=None,doc_id="",answer=""):
             "answer":answer,"citations":["train_42::a","train_42::b"]
                if kind=="finish" and answer else []}
     return ({"action":action,**({"observation":obs} if obs is not None else {})},
-            {"legal_actions":[action],
+            {"legal_actions":[copy.deepcopy(action)],
              "selected_index":0,"action_token_targets":1,
              "tool_observation_targets":0,"selection_mode":"sample",
              "prompt_ids":[1,2,3],
