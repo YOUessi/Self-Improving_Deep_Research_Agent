@@ -89,17 +89,48 @@ def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
         selection_mode=selection_mode)
 
 
+def stage_group_advantages(episodes:list[dict])->None:
+    """Outcome-based TRAIN-only per-tool credit after COMPLETE real rollouts.
+
+    This is an exploratory group-relative policy-gradient attribution rule,
+    NOT native TRL GRPO. For SEARCH/READ, directly attribute progress in
+    reading gold support (computed privately in TRAIN reward only). For FINISH,
+    emphasize answer EM + strict evidence instead of rewarding a premature
+    stop for irrelevant partial support. The LM never sees these TRAIN gold
+    features: they enter only the scalar optimizer advantage after rollout.
+    """
+    if len(episodes)<2:
+        raise ValueError("stage-aware group needs >=2 TRAIN on-policy rollouts")
+    for ep in episodes:
+        if ep["train_reward"].get("strict_outcome") is None:
+            raise ValueError("stage credit requires verified TRAIN rewards")
+    support=group_normalized_advantages([
+        0.8*ep["train_reward"]["read_support_recall"]
+        +0.2*ep["train_reward"]["strict_outcome"] for ep in episodes])
+    answers=group_normalized_advantages([
+        0.6*ep["train_reward"]["answer_correct"]
+        +0.4*ep["train_reward"]["strict_outcome"] for ep in episodes])
+    for ep,a_support,a_answer in zip(episodes,support,answers,strict=True):
+        ep["stage_advantages"]={
+            "search":float(a_support),
+            "read":float(a_support),
+            "finish":float(a_answer),
+        }
+
+
 def finite_action_update(model,episodes:list[dict],optimizer, *,
-                         clip:float=0.2)->dict:
+                         clip:float=0.2,
+                         credit_mode:str="episode_total")->dict:
     """One gradient update from fresh trajectories, no replay after update."""
     import torch
     if not 0<clip<1:raise ValueError("invalid PPO clip")
+    if credit_mode not in {"episode_total","stage_credit_v1"}:
+        raise ValueError("unknown TRAIN credit mode")
     active=[]
     for ep in episodes:
         adv=float(ep["advantage"])
         if not math.isfinite(adv):
             raise ValueError("nonfinite group-relative advantage")
-        if abs(adv)<1e-8:continue
         for a in ep["action_samples"]:
             if a["action_token_targets"]!=1 or a["tool_observation_targets"]!=0:
                 raise ValueError("label leakage into loss mask")
@@ -109,6 +140,21 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
                 raise ValueError("choice masking or selected ID mismatch")
             if not math.isfinite(a["sampled_logprob"]):
                 raise ValueError("invalid rollout logprob")
+            if credit_mode=="stage_credit_v1":
+                selected=a.get("legal_actions",[])
+                index=a["selected_index"]
+                if not 0<=index<len(selected):
+                    raise ValueError("invalid selected action for stage credit")
+                kind=selected[index].get("kind")
+                if kind not in {"search","read","finish"}:
+                    raise ValueError("unknown tool stage for credit")
+                stage_adv=ep.get("stage_advantages",{})
+                if set(stage_adv)!={"search","read","finish"}:
+                    raise ValueError("TRAIN stage advantages absent")
+                adv=float(stage_adv[kind])
+                if not math.isfinite(adv):
+                    raise ValueError("nonfinite stage advantage")
+            if abs(adv)<1e-8:continue
             active.append((adv,a))
     if not active:
         return {"updated":False,"reason":"all_constant_group_rewards","actions":0}
@@ -160,6 +206,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
         "gradient_norm":grad_norm,
         "first_parameter_max_change":delta,
         "loss_mean":sum(losses)/len(losses),
+        "credit_mode":credit_mode,
     }
 
 
@@ -167,11 +214,14 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           out:Path,seed:int,groups:int,generations:int,updates:int,
           max_steps:int,max_tool_calls:int,max_context:int,
           learning_rate:float,answer_proposer:str="legacy",
-          curriculum_teacher:Path|None=None)->dict:
+          curriculum_teacher:Path|None=None,
+          credit_mode:str="episode_total")->dict:
     if out.exists():raise FileExistsError(out)
     if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
     if generations<2:raise ValueError("need >=2 generations per task")
+    if credit_mode not in {"episode_total","stage_credit_v1"}:
+        raise ValueError("unknown TRAIN credit mode")
     import torch,transformers,peft
     docs,questions=load_dataset(data)
     dev=json.loads(dev_manifest.read_text())
@@ -256,13 +306,16 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                 [ep["train_reward"]["total"] for ep in versions])
             for ep,a in zip(versions,adv):
                 ep["advantage"]=a
+            if credit_mode=="stage_credit_v1":
+                stage_group_advantages(versions)
             varying+=int(any(abs(x)>1e-6 for x in adv))
             trajectories.extend(versions)
             print("FINITE_ONLINE_GROUP",iteration,i+1,len(batch),
                   "reward",[ep["train_reward"]["total"] for ep in versions],
                   "variable",int(any(abs(x)>1e-6 for x in adv)),
                   "elapsed",round(time.monotonic()-started,1),flush=True)
-        report=finite_action_update(model,trajectories,optimizer)
+        report=finite_action_update(
+            model,trajectories,optimizer,credit_mode=credit_mode)
         if report["updated"] is False:
             raise RuntimeError("All action groups constant; not a valid GRPO update")
         report.update({
@@ -300,6 +353,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         "dev_manifest_sha256":_sha256(dev_manifest),
         "split":"train","seed":seed,"num_updates":updates,
         "train_only_curriculum":curriculum_audit,
+        "credit_mode":credit_mode,
         "selected_training_ids":[q.question_id for q in selected],
         "updates":results,
         "max_steps":max_steps,"max_tool_calls":max_tool_calls,
@@ -387,6 +441,10 @@ def main():
     t.add_argument("--generations",type=int,default=4)
     t.add_argument("--updates",type=int,default=1)
     t.add_argument("--learning-rate",type=float,default=1e-5)
+    t.add_argument("--credit-mode",choices=["episode_total","stage_credit_v1"],
+                   default="episode_total",
+                   help="Stage-conditioned TRAIN reward is an experimental "
+                        "custom on-policy policy gradient, NOT TRL native GRPO.")
     e.add_argument("--split",choices=["train","dev"],default="dev")
     e.add_argument("--limit",type=int,default=32)
     e.add_argument("--greedy",action="store_true",
@@ -400,7 +458,8 @@ def main():
         train(**common,dev_manifest=args.dev_manifest,
               groups=args.groups,generations=args.generations,
               updates=args.updates,learning_rate=args.learning_rate,
-              curriculum_teacher=args.curriculum_teacher)
+              curriculum_teacher=args.curriculum_teacher,
+              credit_mode=args.credit_mode)
     else:
         print(json.dumps(run_eval(
             **common,limit=args.limit,split=args.split,
