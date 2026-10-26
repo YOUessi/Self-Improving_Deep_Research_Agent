@@ -71,10 +71,10 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
     synthetic = "synthetic smoke fixture" in fixture_description.lower()
     if "fixture_" in policy.name:
         label = "smoke_fixture"
-    elif getattr(policy, "adapter_path", None):
-        label = "pretrained_plus_train_only_sft_adapter_evaluation"
     elif synthetic:
         label = "pretrained_model_on_synthetic_smoke"
+    elif getattr(policy, "adapter_path", None):
+        label = "pretrained_plus_train_only_sft_adapter_evaluation"
     else:
         label = "untrained_baseline"
     manifest = {
