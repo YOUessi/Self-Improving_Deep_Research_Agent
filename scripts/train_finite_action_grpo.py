@@ -56,7 +56,7 @@ def select_train_only(questions,dev_ids:set[str],*,seed:int,n:int):
 
 
 def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
-                ctx:int):
+                ctx:int,max_tool_calls:int):
     import torch
     from transformers import AutoModelForCausalLM,AutoTokenizer
     from peft import PeftModel
@@ -76,7 +76,8 @@ def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
         model,tokenizer,seed=seed,
         cfg=FiniteActionConfig(max_prompt_tokens=ctx),
         adapter_path=str(adapter_path),
-        model_name=str(model_path))
+        model_name=str(model_path),
+        max_tool_calls=max_tool_calls)
 
 
 def finite_action_update(model,episodes:list[dict],optimizer, *,
@@ -168,7 +169,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     random.seed(seed)
     torch.cuda.manual_seed_all(seed)
     policy=load_policy(model_path,adapter_path,seed=seed,
-                       trainable=True,ctx=max_context)
+                       trainable=True,ctx=max_context,
+                       max_tool_calls=max_tool_calls)
     model=policy.model
     torch.cuda.reset_peak_memory_stats()
     optimizer=torch.optim.AdamW(
@@ -191,7 +193,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                 ).hexdigest()[:8],16)
                 roll=FiniteActionPolicy(model,policy.tokenizer,
                                         seed=seed_for_episode,cfg=policy.cfg,
-                                        adapter_path=str(adapter_path))
+                                        adapter_path=str(adapter_path),
+                                        max_tool_calls=max_tool_calls)
                 runner.policy=roll
                 trace=runner.run(q)
                 score=score_train_rollout(
@@ -271,7 +274,8 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
              out:Path,limit:int,seed:int,max_steps:int,max_tool_calls:int,
              max_context:int,split:str)->dict:
     policy=load_policy(model_path,adapter_path,seed=seed,
-                       trainable=False,ctx=max_context)
+                       trainable=False,ctx=max_context,
+                       max_tool_calls=max_tool_calls)
     config=AgentConfig(max_steps=max_steps,max_tool_calls=max_tool_calls,
                        search_top_k=3)
     summary=evaluate(data,split,policy,out,config=config,
