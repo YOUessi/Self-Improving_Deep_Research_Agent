@@ -90,3 +90,15 @@
 - **Costs:** average 3 model calls, 1719 prompt tokens, 94 completion tokens, 2 tool calls (1 search+1 read), 48.08 seconds per question under CPU/GPU offload.
 - **Raw artifacts:** `Tang:~/experiments/sidra_m3/results/qwen3bf16_single_dev2/` (`traces.jsonl`, `per_example.jsonl`, `summary.json`, `manifest.json`).
 - **Conclusion:** Qwen3 genuine multi-hop QA *output* works, but evidence-complete tool policy still fails. **Do not claim perfect Agent performance from 2/2 answer EM**. A matched multi-role test on the same exact questions, tool budgets, model and code SHA was launched separately; its result is not included in E-005.
+
+
+## E-006 — Multi-role Qwen3-8B BF16 on same real HotpotQA dev2 (2026-10-26)
+
+- **Code:** same pinned GitHub snapshot `62e3874013d38c90b8677e9d9683b5598787fd52`, dataset, two question IDs, checkpoint, BF16 CPU/GPU offload, temperature=0, `max_new_tokens=64`, `max_steps=6`, `max_tool_calls=5`, `search_top_k=3` as E-005; only policy changed from `transformers` to `multi-transformers --min-citations 2`.
+- **Question IDs:** `5a7363ec5542991f29ee2dd7`, `5a75d9b4554299109176e5a7`, frozen dev-only input; no gold labels exposed to either policy.
+- **Multi-role:** answer EM **0/2**, F1 **0**, evidence precision/recall **0**, strict verified success **0/2**, all episodes abstained or errored. Mean model calls **3.5**, prompt tokens **2327.5**, completion tokens **125**, tool calls **2.5**, elapsed **63.685s** per question.
+- **Matched single (E-005):** answer EM **2/2**, strict verified success **0/2**; model calls **3.0**, prompt tokens **1719**, completion tokens **94**, tool calls **2.0**, elapsed **48.0755s** per question.
+- **Multi-role failures:** on first question, Planner search + Researcher read succeeded, but next Researcher call produced unparsable action JSON and terminated as error. On second, Researcher repeated reading the same document, then attempted premature finish, which the role guard converted to abstention.
+- **Conclusion:** sequential role specialization **worsened answer quality and cost** on these two real examples; it did **not** improve strict evidence completeness. This is an exploratory n=2 integration result, NOT a statistically powered assessment of multi-agent vs single-agent algorithms.
+- **Artifacts:** Tang `~/experiments/sidra_m3/results/qwen3bf16_multi_dev2/` plus single-run outputs and per-example JSONL. Negative results retained; do not rename this into a success experiment.
+- **Next gate:** fix structured-action robustness and repeated reads without using gold answers or growing the tool budget; then evaluate on disjoint held-out IDs from the frozen dev24 subset and report both model-calling costs and strict evidence success.
