@@ -153,7 +153,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           max_steps:int,max_tool_calls:int,max_context:int,
           learning_rate:float)->dict:
     if out.exists():raise FileExistsError(out)
-    if min(groups,generations,updates,max_steps,max_tool_calls)>=1 is False:
+    if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
     if generations<2:raise ValueError("need >=2 generations per task")
     import torch,transformers,peft
@@ -166,10 +166,10 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     torch.manual_seed(seed)
     random.seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.cuda.reset_peak_memory_stats()
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=True,ctx=max_context)
     model=policy.model
+    torch.cuda.reset_peak_memory_stats()
     optimizer=torch.optim.AdamW(
         (p for p in model.parameters() if p.requires_grad),
         lr=learning_rate,weight_decay=0)
