@@ -141,6 +141,9 @@ class OpenAICompatiblePolicy:
         self.model_calls = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        # TRAIN-only rollout sampler may persist these messages and actual
+        # assistant action strings, with no API keys and no evaluator labels.
+        self.action_io: list[dict] = []
 
     def decide(self, question: str, observations: list[dict], remaining: int) -> Action:
         return self.decide_with_system(question, observations, remaining, SYSTEM)
@@ -236,7 +239,17 @@ class OpenAICompatiblePolicy:
         usage = packet.get("usage") or {}
         self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
         self.completion_tokens += int(usage.get("completion_tokens") or 0)
-        message = packet["choices"][0]["message"]["content"]
+        choice = packet["choices"][0]
+        message = choice["message"]["content"]
         if not isinstance(message, str):
             raise ValueError("Model returned non-string content")
+        self.action_io.append({
+            "messages": body["messages"],
+            "raw_completion": message,
+            "generation_seed": body.get("seed"),
+            "finish_reason": choice.get("finish_reason"),
+            "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+            "completion_tokens": int(usage.get("completion_tokens") or 0),
+            "constrained_schema": bool(self.constrain_actions),
+        })
         return Action.from_dict(_json_object(message))
