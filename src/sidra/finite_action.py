@@ -18,7 +18,6 @@ import json
 import re
 from dataclasses import dataclass
 
-from sidra.policies import SYSTEM
 from sidra.schema import Action
 
 
@@ -275,7 +274,9 @@ class FiniteActionPolicy:
         with torch.no_grad():
             ids=torch.tensor([prompt],device=device,dtype=torch.long)
             logits=self.model(input_ids=ids).logits[0,-1,:].float()
-            prob=torch.softmax(logits[torch.tensor(tokids,device=device)],dim=0)
+            masked_logits=logits[torch.tensor(tokids,device=device)]
+            categorical_lp=torch.log_softmax(masked_logits,dim=0)
+            prob=torch.exp(categorical_lp)
             generator=torch.Generator(device=device)
             generator.manual_seed(self.seed+self.model_calls)
             index=int(torch.multinomial(prob,num_samples=1,generator=generator).item())
@@ -287,7 +288,8 @@ class FiniteActionPolicy:
             "selected_token_id":tokids[index],
             "num_legal_actions":len(candidates),
             "legal_actions":[x.to_dict() for x in candidates],
-            "choice_prob":round(float(prob[index]),7),
+            "choice_prob":float(prob[index]),
+            "sampled_logprob":float(categorical_lp[index]),
             "tool_observation_targets":0,
             "action_token_targets":1,
         })
