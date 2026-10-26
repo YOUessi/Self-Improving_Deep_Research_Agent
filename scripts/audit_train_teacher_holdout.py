@@ -14,9 +14,17 @@ import math
 import random
 from pathlib import Path
 
-from scripts.audit_paired_onpolicy import (
-    _json,_read_examples,_check_finite_companion,_bootstrap,_sign_p_improvement,
-)
+# Support both `python scripts/audit_train_teacher_holdout.py` and
+# `python -m scripts.audit_train_teacher_holdout`: direct script execution
+# places scripts/ (not its parent) at sys.path[0]. Keep imports explicit.
+if __package__:
+    from scripts.audit_paired_onpolicy import (
+        _json,_read_examples,_check_finite_companion,_bootstrap,_sign_p_improvement,
+    )
+else:
+    from audit_paired_onpolicy import (
+        _json,_read_examples,_check_finite_companion,_bootstrap,_sign_p_improvement,
+    )
 
 _METRICS=("exact_match","verified_success","evidence_recall",
           "token_f1","tool_calls","search_calls","read_calls")
