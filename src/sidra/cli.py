@@ -29,6 +29,9 @@ def main() -> None:
     ev.add_argument("--limit", type=int, default=0)
     ev.add_argument("--seed", type=int, default=42)
     ev.add_argument("--max-new-tokens", type=int, default=280)
+    ev.add_argument("--offload-gpu-gib", type=int, default=0,
+                    help="Opt-in BF16 GPU/CPU offload cap; 0 means GPU-only")
+    ev.add_argument("--offload-dir", type=str, default=None)
     ev.add_argument("--min-citations", type=int, default=2)
     export = sub.add_parser("export-sft", help="Export only fully verified TRAIN traces")
     export.add_argument("--dataset", type=Path, required=True)
@@ -51,7 +54,9 @@ def main() -> None:
         if not args.model:
             parser.error("--model is required for local Transformers inference")
         from sidra.policies_transformers import TransformersPolicy
-        policy = TransformersPolicy(args.model, max_new_tokens=args.max_new_tokens)
+        policy = TransformersPolicy(
+            args.model, max_new_tokens=args.max_new_tokens,
+            offload_gpu_gib=args.offload_gpu_gib, offload_dir=args.offload_dir)
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
