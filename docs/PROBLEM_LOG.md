@@ -132,3 +132,18 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - Independent full-file SHA-256 check matched the official ModelScope manifest for **every weight shard, tokenizer.json and index.json**: total 11/11 verified files, exit code 0, no unfinished shards.
 - Source of verification: `docs/QWEN3_MODEL_VALIDATION_20261026.json` and Tang `~/experiments/sidra_download/verification_report.json`; CodeRL-Lab's existing environment successfully parsed both configs/tokenizers.
 - **Resolution:** model downloads successful through the official ModelScope channel. The Hugging Face DNS/HTTPS outage itself remains unresolved and no system DNS changes were made. AWQ GPU inference is a separate pending validation.
+
+
+## P-016 — Fetching updated GitHub branch from Tang stalled (resolved via pinned archive)
+
+- **Observed:** original SIDRA GitHub clone completed and was validated, but a later `git fetch --quiet origin feat/m3-real-qwen3-hotpotqa-baseline` remained stalled for several minutes despite a successful `git ls-remote`; the remote `git remote-https` process remained idle.
+- **Correction:** terminated only the stalled fetch and downloaded the exact committed source SHA `acfb4b32f59f2d1369486761907b342425cdaac5` as a GitHub `codeload.github.com` tarball, extracted into a new immutable-looking source snapshot directory, wrote `GITHUB_COMMIT.txt` for run provenance. This is a mirror of GitHub, not a new source of truth.
+- **Verification:** extraction succeeded, Tang ran `PYTHONPATH=src python3 -m pytest -q` with **32 passed**. HotpotQA conversion and BM25 profiling ran from that snapshot.
+- **Remaining:** repeat this snapshot verification for every subsequent GitHub commit used for GPU tests; never mix code files across commits.
+
+## P-017 — vLLM dependency download stuck at z3-solver wheel (partially resolved)
+
+- **Observed:** installing `vllm==0.31.0` in isolated `~/experiments/sidra_m3/.venv_vllm` using default PyPI repeatedly stopped during a 29.3MB `z3-solver==4.15.4.0` download. A prior unrelated infra project experienced the same stall.
+- **Diagnosis:** direct PyPI wheel download was severely throttled, whereas Aliyun PyPI mirror returned fast partial content. This is a package distribution speed issue, not evidence that AWQ weights are damaged.
+- **Mitigation:** terminated the stalled pip operation (not the other project's install), downloaded the exact z3 wheel from Aliyun, verified **SHA256=7e103a6f203f505b8b8b8e5c931cc407c95b61556512d4921c1ddc0b3f41b08e** against PyPI metadata, installed it to SIDRA's isolated venv with `--no-deps`, and restarted vLLM installation with `--index-url https://mirrors.aliyun.com/pypi/simple/`.
+- **Remaining:** vLLM import, CUDA/AWQ compatibility and actual model inference must pass before closing the issue. Do not claim the model has run yet.
