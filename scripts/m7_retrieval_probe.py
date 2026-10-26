@@ -8,6 +8,7 @@ Never point this diagnostic at final-B160 or eval-A64 during policy selection.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 from pathlib import Path
@@ -18,6 +19,19 @@ from sidra.bridge_policy import choose_unread_hit
 from sidra.io import load_dataset, save_jsonl
 from sidra.next_hop_policy import plan_next_hop
 from sidra.schema import Action
+
+
+# Frozen *opened* DEV pilot32; NEVER substitute eval-A64 or final-B160.
+OPEN_PILOT_DOCS_SHA256 = "5aabc048b344940ffdce2880a7a57a683d4009777a796fd0602ed683a500cc6c"
+OPEN_PILOT_QUESTIONS_SHA256 = "94db9bdfff053555b9a8e0da9a850b5bee3de73e2406ec85c63461b5ae033e6e"
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 class ProbePolicy:
@@ -109,6 +123,10 @@ def run(dataset: Path, out: Path, *, mode: str, limit: int = 64,
         raise FileExistsError(out)
     if mode not in {"train", "pilot"}:
         raise ValueError("mode must be TRAIN-only or opened PILOT32")
+    if mode == "pilot":
+        if (_sha256(dataset / "documents.jsonl") != OPEN_PILOT_DOCS_SHA256
+                or _sha256(dataset / "questions.jsonl") != OPEN_PILOT_QUESTIONS_SHA256):
+            raise ValueError("not the frozen open pilot32: SHA256 mismatch; refuse")
     docs, questions = load_dataset(dataset)
     expected_split = "train" if mode == "train" else "dev"
     if not questions or any(q.split != expected_split for q in questions):
