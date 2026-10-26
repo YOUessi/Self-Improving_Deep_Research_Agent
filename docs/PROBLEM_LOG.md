@@ -189,3 +189,15 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Cause hypothesis:** a permissive schema with five always-required fields and unbounded strings permitted an excessively long query instead of terminating an action. We cannot establish whether the exact trigger is XGrammar constraints, prompt/schema conflict or model sampling.
 - **Fix:** `src/sidra/policies.py` strict discriminated `oneOf` with per-kind required fields and bounded string lengths, plus `tests/test_structured_action_request.py`. GitHub Python 3.10/3.12 CI passed. Direct replay completed a valid search action in 21 tokens, 0.718s, `finish_reason=stop`.
 - **Residual:** real 4-QA diagnostic single-Agent answer EM 1/4, verified 0/4, multi-role 0/4 on both. Correct evidence/QA and longer independent benchmark remain OPEN; constrained syntax is not sufficient for correctness.
+
+
+## P-022 — AWQ first-action invalid JSON fixed by per-action schema, but reasoning remains weak (FORMAT FIXED, ACCURACY OPEN)
+
+- Loose schema allowed runaway whitespace in `query`; a real request terminated with `finish_reason=length` at 400 tokens. Four initial HotpotQA dev prompts failed at action 1 with no tools, despite healthy AWQ/vLLM API.
+- A `oneOf` schema now enforces exactly one of search/read/finish with per-kind required fields, bounded field lengths, max five citations, and no unknown properties. Direct identical prompt returned parseable search JSON in 21 tokens, 0.718s. Same 4 diagnostic QA progressed through actual tools, but strict verified success remained 0/4.
+- Independent seed42 dev offset8–15 with eight QA: single answer 2/8 and verified0/8; multi answer2/8 and verified1/8 at higher call/token/time cost. Syntax fix is real, but broad reasoning/RSI gain remains unproven; run a larger frozen set and independent human-audited subset before making claims.
+
+## P-023 — Wrapped multi-agent manifest lost model_id (FIXED FOR FUTURE RUNS)
+
+- **Observed:** E-011 multi-role `manifest.json` had `model_id=null`, because `MultiAgentPolicy` wrapped an OpenAI-compatible policy and did not expose the `model` identifier. Source SHA, runtime server and model were independently known, but machine-readable manifest provenance was incomplete.
+- **Fix:** forward the underlying declared string model name via `MultiAgentPolicy.model_name`, add a focused regression test, and preserve original already-emitted manifests as immutable evidence. Subsequent model evaluations should record `sidra-qwen3-8b-awq` in the manifest.
