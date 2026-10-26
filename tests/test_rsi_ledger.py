@@ -76,8 +76,11 @@ def test_generation_ledger_requires_changed_checkpoint_and_positive_evidence(tmp
     r=record_generation(generation=1,parent_adapter_sha256="1"*64,
         new_adapter_sha256="2"*64,source_train_rollouts_sha256="3"*64,
         evaluator_report=report(),out=tmp_path/"g1.json")
-    assert r["promoted"]
-    assert r["single_generation_improvement_observed"]
+    assert not r["promoted"]
+    assert r["status"]=="pilot_pending_independent_eval"
+    assert r["single_generation_dev_signal_observed"]
+    assert r["next_selected_checkpoint_sha256"]=="1"*64
+    assert r["actual_model_update_file_verified"] is False
     assert r["multi_generation_RSI_completed"] is False
     with pytest.raises(FileExistsError):
         record_generation(generation=1,parent_adapter_sha256="1"*64,
