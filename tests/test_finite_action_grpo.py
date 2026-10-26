@@ -245,3 +245,40 @@ def test_greedy_decisions_are_not_passed_off_as_on_policy_samples():
             m,[{"advantage":1.0,"action_samples":[sample]}],opt)
     with pytest.raises(ValueError,match="selection mode"):
         FiniteActionPolicy(m,tok,selection_mode="invalid")
+
+
+def test_v2_catalog_can_propose_unicode_multiword_person_from_read_evidence():
+    from sidra.finite_action import FiniteActionConfig
+    text=("The Congress of Vienna was chaired by Austrian statesman "
+          "Klemens von Metternich, between November 1814 and June 1815.")
+    observations=[
+        {"kind":"search","query":"Austrian statesman Congress",
+         "hits":[{"doc_id":"train::0","title":"Congress","snippet":"Austrian statesman"}]},
+        {"kind":"read","doc_id":"train::0","title":"Congress","text":text},
+    ]
+    question="Which Austrian statesman chaired the meeting?"
+    legacy=build_legal_actions(question,observations,remaining=1,
+                               cfg=FiniteActionConfig(answer_proposer="legacy"))
+    upgraded=build_legal_actions(question,observations,remaining=1,
+                                 cfg=FiniteActionConfig(answer_proposer="v2"))
+    assert not any(a.kind=="finish" and a.answer=="Klemens von Metternich"
+                   for a in legacy)
+    assert any(a.kind=="finish" and a.answer=="Klemens von Metternich"
+               and a.citations==("train::0",) for a in upgraded)
+    with pytest.raises(ValueError,match="answer proposer"):
+        FiniteActionConfig(answer_proposer="gold_oracle")
+
+
+def test_distribution_mismatch_in_late_action_is_rejected_before_any_update():
+    torch,m,tok=_toy_objects()
+    policy=FiniteActionPolicy(m,tok,seed=43)
+    policy.decide("When was the bridge built?",[],5)
+    record=policy.samples[0]
+    actions=[dict(record) for _ in range(14)]
+    actions[-1]["sampled_logprob"]+=0.3
+    opt=torch.optim.AdamW(m.parameters(),lr=1e-3)
+    before=float(m.weight.detach())
+    with pytest.raises(RuntimeError,match="distribution mismatch"):
+        finite_action_update(m,[{"advantage":1.0,
+                                  "action_samples":actions}],opt)
+    assert float(m.weight.detach())==before
