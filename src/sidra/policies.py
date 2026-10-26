@@ -150,23 +150,55 @@ class OpenAICompatiblePolicy:
         # for non-schema endpoints. Required by the server only when explicitly
         # requested through --constrain-actions.
         if self.constrain_actions:
+            # Discriminated union, not a permissive object with five mandatory
+            # fields for *every* action. The old schema let the model spend
+            # all 400 tokens filling a search.query field with whitespace.
+            # Bound query/answer/id lengths; search must not contain fabricated
+            # answer/citations; finish must contain its declared sources.
+            schema = {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "search"},
+                            "query": {"type": "string", "minLength": 1,
+                                      "maxLength": 120},
+                        },
+                        "required": ["kind", "query"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "read"},
+                            "doc_id": {"type": "string", "minLength": 1,
+                                       "maxLength": 120},
+                        },
+                        "required": ["kind", "doc_id"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "finish"},
+                            "answer": {"type": "string", "maxLength": 100},
+                            "citations": {
+                                "type": "array",
+                                "items": {"type": "string", "maxLength": 120},
+                                "maxItems": 5,
+                            },
+                        },
+                        "required": ["kind", "answer", "citations"],
+                        "additionalProperties": False,
+                    },
+                ]
+            }
             body["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "sidra_tool_action",
                     "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "kind": {"type": "string", "enum": ["search", "read", "finish"]},
-                            "query": {"type": "string"},
-                            "doc_id": {"type": "string"},
-                            "answer": {"type": "string"},
-                            "citations": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["kind", "query", "doc_id", "answer", "citations"],
-                        "additionalProperties": False,
-                    },
+                    "schema": schema,
                 },
             }
         key = os.getenv(self.key_env, "")
