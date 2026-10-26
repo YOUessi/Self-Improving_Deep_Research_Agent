@@ -52,3 +52,18 @@
 - **Controls:** early finish blocked, citations require read sources, no benchmark gold answer in prompts/role history, config-only Qwen3 cache rejected, missing weight shard detected.
 - **Limitations:** the implementation is sequential role specialization on one model backend. No independent concurrent role inference, HotpotQA benchmark, valid model-versus-model comparison, SFT, GRPO, or RSI improvement has been run for M2.
 - **Next:** synchronize the full GitHub snapshot to Tang through an approved method, then compare single and multi-role on the SAME frozen real benchmark with equal tool budgets and reported inference calls/tokens.
+
+
+## E-003 — HotpotQA distractor, real passages, BM25 retrieval profile (2026-10-26)
+
+- **Research question:** how often does the question-only BM25 initial search recover both evidence passages, before any model-side search reformulation?
+- **Original source:** [HotpotQA distractor validation](https://github.com/hotpotqa/hotpot), via HF-mirror copy of `RAGLAB/data/eval_datasets/HotPotQA/hotpot_dev_distractor_v1.json`. SHA-256 **4e9ecb5c8d3b719f624d66b60f8d56bf227f03914f5f0753d6fa1b359d7104ea**, identical to the official HotpotQA dataset manifest. Source has 7,405 dev questions. Data is CC BY-SA 4.0 and is **not committed**.
+- **Sample:** 24 dev examples selected by ascending SHA-256 of `42:question_id` from the full original dev split, independent of labels or retrieval success. Selected IDs, seed, count and raw data checksum saved locally in `~/experiments/sidra_m3/data/seed42_dev24/original_subset.manifest.json`. The original `dev` label was retained; **no training data** is exported from these examples.
+- **Corpus:** 10 supplied candidate passages per question; 240 documents total; labels are evaluator-only, each question has 2 supporting document titles. This is *distractor candidate-passage* evaluation, **NOT full-Wikipedia or web retrieval**.
+- **Commands:** `scripts/select_hotpotqa.py --n 24 --seed 42`; `scripts/convert_hotpotqa.py --split dev`; `PYTHONPATH=src python scripts/profile_hotpot_retrieval.py --limit 24 --seed 42`. Tang used GitHub source snapshot `acfb4b32f59f2d1369486761907b342425cdaac5`; 32 CPU tests passed there.
+- **Top-1:** support recall **0.375**, all-support completion **0/24**.
+- **Top-3:** support recall **0.6458333**, all-support completion **9/24 = 0.375**.
+- **Top-5:** support recall **0.7708333**, all-support completion **14/24 = 0.583333**.
+- **Top-10:** support recall **1.0**, all-support completion **24/24 = 1.0**, because the provided distractor candidate set contains gold passages.
+- **Raw results:** Tang `~/experiments/sidra_m3/results/retrieval_seed42_24/` (`per_example.jsonl`, `summary.json`). Do not treat these as LLM answer accuracy or training gain. Sample is intentionally small.
+- **Open gate:** install/verify AWQ inference backend (vLLM), run actual Qwen3-8B-AWQ inference on frozen 24 dev examples, compare matched single/multi-role tool and total inference budgets, and preserve every failed case. The actual model baseline is **NOT YET RUN**.
