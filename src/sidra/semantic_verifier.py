@@ -59,7 +59,8 @@ def question_answer_hypothesis(question:str, answer:str)->str|None:
     patterns=(
         # "When was the director of X born?" / "Where was X born?"
         (r"^(when|where) was (.+?) born$", lambda m: m[2]+" was born "+("in " if m[1].lower()=="where" else "on ")+a),
-        (r"^in what year was (.+?) born$", lambda m: m[1]+" was born in "+a),
+        (r"^in (?:what|which) year was (.+?) (born|founded|established|opened|created|released)$",
+         lambda m:m[1]+" was "+m[2]+" in "+a),
         (r"^in which (city|country|state|region) was (.+?) born$",lambda m:m[2]+" was born in "+a),
         # "What author created [work]?" and "Who wrote [book]?"
         (r"^what (author|writer|person) (wrote|created|directed|composed|invented|founded) (.+)$",
