@@ -51,6 +51,22 @@ def test_question_to_claim_abstains_on_ambiguous_bridge():
     assert question_answer_hypothesis(
         "The Duke was a son of what king?", "Henry VII") is None
     assert question_answer_hypothesis("What?", "") is None
+    assert question_answer_hypothesis(
+        "Rock'n Rollers were a subsidiary of what company since 2006?",
+        "Tayto")=="Rock'n Rollers were a subsidiary of Tayto since 2006."
+    assert question_answer_hypothesis(
+        "Darin Adler was a developer of the engine that ran which point-and-click adventure?",
+        "MacVenture")=="Darin Adler was a developer of the engine that ran MacVenture."
+    assert question_answer_hypothesis(
+        "A reality show features what two parents of the Duggar family?",
+        "Jim Bob and Michelle Duggar"
+    )=="A reality show features Jim Bob and Michelle Duggar of the Duggar family."
+    assert question_answer_hypothesis(
+        "The Latino World Order was led by a wrestler born in which year?",
+        "1962"
+    )=="The Latino World Order was led by a wrestler born in 1962."
+    assert question_answer_hypothesis(
+        "Which of these films won what award?", "Palme d'Or") is None
 
 
 def test_positive_nli_is_model_prediction_never_oracle_truth():
