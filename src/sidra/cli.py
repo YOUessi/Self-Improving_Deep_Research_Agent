@@ -18,7 +18,7 @@ def main() -> None:
     ev = sub.add_parser("eval", help="Run baseline and store immutable trace/metrics/manifest directory")
     ev.add_argument("--dataset", required=True, type=Path)
     ev.add_argument("--split", choices=["train", "dev", "test"], default="dev")
-    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers", "grounded-openai"], required=True)
+    ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers", "grounded-openai", "bridge-grounded-openai"], required=True)
     ev.add_argument("--endpoint", help="OpenAI-compatible /v1/chat/completions URL")
     ev.add_argument("--model", help="Model served at --endpoint")
     ev.add_argument("--key-env", default="OPENAI_API_KEY")
@@ -86,11 +86,14 @@ def main() -> None:
     if args.policy.startswith("multi-"):
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
-    elif args.policy.startswith("grounded-"):
+    elif args.policy in {"grounded-openai", "bridge-grounded-openai"}:
         from sidra.grounded_policy import GroundedPolicy
         policy = GroundedPolicy(
             policy, min_reads=args.min_evidence_reads,
             revise_citations=not args.no_revise_citations)
+        if args.policy == "bridge-grounded-openai":
+            from sidra.bridge_policy import BridgeGroundedPolicy
+            policy = BridgeGroundedPolicy(policy)
     config = AgentConfig(max_steps=args.max_steps,
                          max_tool_calls=args.max_tool_calls,
                          search_top_k=args.search_top_k,
