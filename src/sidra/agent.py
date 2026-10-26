@@ -22,6 +22,7 @@ class AgentConfig:
     max_tool_calls: int = 7
     search_top_k: int = 3
     max_read_chars: int = 3500
+    title_boost: float = 0.0
 
     def __post_init__(self) -> None:
         if min(self.max_steps, self.max_tool_calls, self.search_top_k, self.max_read_chars) < 1:
@@ -31,9 +32,9 @@ class AgentConfig:
 class SearchAgent:
     def __init__(self, docs: list[Document], policy: Policy, config: AgentConfig | None = None):
         self.docs = {d.doc_id: d for d in docs}
-        self.index = BM25Index(docs)
-        self.policy = policy
         self.config = config or AgentConfig()
+        self.index = BM25Index(docs, title_boost=self.config.title_boost)
+        self.policy = policy
 
     def run(self, question: Question) -> AgentTrace:
         config = self.config
