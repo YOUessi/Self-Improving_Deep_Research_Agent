@@ -74,6 +74,7 @@ def question_cluster_bootstrap(
 def audit_train(
     *,dataset:Path,original_train:Path,rollouts:list[Path],
     scorer,out:Path,bootstrap:int=2000,model_manifest:dict|None=None,
+    require_bridge_link:bool=False,
 )->dict:
     if out.exists():raise FileExistsError(out)
     if not rollouts:raise ValueError("need TRAIN-only rollout files")
@@ -105,7 +106,8 @@ def audit_train(
             # Source-only NLI gets only user question, assistant answer, actual
             # SEARCH/READ/FINISH trace — neither gold nor supporting indices.
             start=time.monotonic()
-            review=semantic_review(tr,q.question,scorer)
+            review=semantic_review(tr,q.question,scorer,
+                                   require_bridge_link=require_bridge_link)
             cpu_s=time.monotonic()-start
             offline=offline_train_diagnosis(q,tr,by_original[qid])
             records.append({
@@ -120,6 +122,13 @@ def audit_train(
                 "model_contradiction_probability":review.contradiction,
                 "hypothesis":review.hypothesis,
                 "model_evidence_snippets":review.evidence_sentence_count,
+                "observed_bridge_link":review.observed_bridge_link,
+                "bridge_link_rejected":int(
+                    review.status=="model_entailment_blocked_no_observed_bridge"),
+                "raw_nli_entailment_above_threshold":int(
+                    review.model_prediction=="entailment"
+                    and review.entailment is not None
+                    and review.entailment>=0.85),
                 "nli_screen_elapsed_ms":round(cpu_s*1000,3),
                 "model_predicted_entailment":int(review.status=="model_predicted_entailment"),
                 "model_predicted_contradiction":int(review.status=="model_predicted_contradiction"),
@@ -151,6 +160,13 @@ def audit_train(
         "n_episodes":len(records),
         "n_question_clusters":len(set(x["question_id"] for x in records)),
         "nli_scored_count":sum(x["nli_scored"] for x in records),
+        "cross_citation_title_link_required":require_bridge_link,
+        "cross_citation_link_observed_count":sum(
+            x["observed_bridge_link"] is True for x in records),
+        "raw_nli_confident_entailment_count":sum(
+            x["raw_nli_entailment_above_threshold"] for x in records),
+        "raw_nli_confident_entailment_blocked_count":sum(
+            x["bridge_link_rejected"] for x in records),
         "nli_status_counts":dict(sorted(status.items())),
         "nli_reason_counts":dict(sorted(reason.items())),
         "predicted_entailment_count":len(positives),
@@ -197,6 +213,8 @@ def main():
     p.add_argument("--out",type=Path,required=True)
     p.add_argument("--bootstrap",type=int,default=2000)
     p.add_argument("--max-length",type=int,default=384)
+    p.add_argument("--require-bridge-link",action="store_true",
+                   help="Optional gold-blind cited-title cross-document linkage gate")
     args=p.parse_args()
     weights=args.model/"model.safetensors"
     if not weights.is_file():raise FileNotFoundError(
@@ -212,7 +230,8 @@ def main():
     result=audit_train(
         dataset=args.dataset,original_train=args.original_train,
         rollouts=args.rollouts,scorer=cpu,
-        out=args.out,bootstrap=args.bootstrap,model_manifest=manifest)
+        out=args.out,bootstrap=args.bootstrap,model_manifest=manifest,
+        require_bridge_link=args.require_bridge_link)
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 
