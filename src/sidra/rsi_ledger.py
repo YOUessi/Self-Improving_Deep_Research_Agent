@@ -192,8 +192,9 @@ def record_generation(
         "promoted":promoted,
         "status":"promoted" if promoted else "kept_for_negative_analysis",
         "actual_model_update":True,
-        "self_improvement_claim_allowed":promoted,
-        "caution":"one generation on public DEV is not a repeated multi-generation RSI result",
+        "single_generation_improvement_observed":promoted,
+        "multi_generation_RSI_completed":False,
+        "caution":"A single generation on public DEV is NOT a demonstrated multi-generation RSI loop; independent repeated validation required.",
     }
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(record,indent=2)+"\n")
