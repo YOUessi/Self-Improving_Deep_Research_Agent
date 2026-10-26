@@ -84,7 +84,9 @@ def _candidate_spans(text: str,question: str,limit: int)->list[str]:
 
 
 def build_legal_actions(question:str,observations:list[dict],
-                        *,cfg:FiniteActionConfig|None=None)->list[Action]:
+                        *,cfg:FiniteActionConfig|None=None,
+                        remaining:int|None=None,
+                        max_tool_calls:int|None=None)->list[Action]:
     """No access to documents beyond observations, or to any answer labels.
 
     The catalog has at most 9 entries. 'read' IDs are *seen search hits* only;
@@ -94,6 +96,10 @@ def build_legal_actions(question:str,observations:list[dict],
     cfg=cfg or FiniteActionConfig()
     if not question.strip():
         raise ValueError("question must not be empty")
+    if remaining is not None and remaining<1:
+        raise ValueError("remaining step budget must be positive")
+    if max_tool_calls is not None and max_tool_calls<1:
+        raise ValueError("tool budget must be positive")
     asked=set()
     seen={}
     read={}
@@ -107,6 +113,11 @@ def build_legal_actions(question:str,observations:list[dict],
         elif o.get("kind")=="read":
             did=str(o.get("doc_id",""))
             if did:read.setdefault(did,o)
+    used_tools=sum(o.get("kind") in {"search","read"} for o in observations)
+    # The action grammar itself respects the step + tool budget. A model
+    # cannot choose an impossible search/read at the final decision point.
+    can_use_tools=(remaining is None or remaining>1) and (
+        max_tool_calls is None or used_tools<max_tool_calls)
     search_queries=[]
     if not observations:
         search_queries=[question.strip()[:180]]
@@ -126,12 +137,12 @@ def build_legal_actions(question:str,observations:list[dict],
             uniq.append(q)
     actions=[]
     # Prefer actual legal read actions when search results are exposed.
-    for did in list(seen):
+    for did in list(seen) if can_use_tools else []:
         if did not in read:
             actions.append(Action(kind="read",doc_id=did))
         if len(actions)>=3:break
     # Expose alternative search phrases so the model can truly make a multi-hop choice.
-    for q in uniq[:4]:
+    for q in uniq[:4] if can_use_tools else []:
         actions.append(Action(kind="search",query=q))
     if read:
         visible=list(read.values())
@@ -251,7 +262,10 @@ class FiniteActionPolicy:
     def __init__(self,model,tokenizer, *,seed:int=43,
                  cfg:FiniteActionConfig|None=None,
                  adapter_path:str|None=None,
-                 model_name:str|None=None):
+                 model_name:str|None=None,
+                 max_tool_calls:int=5):
+        if max_tool_calls<1:raise ValueError("tool budget must be positive")
+        self.max_tool_calls=max_tool_calls
         self.model=model
         # The shared evaluation manifest serializes model_name as a string;
         # never serialize an actual PEFT model object.
@@ -267,7 +281,9 @@ class FiniteActionPolicy:
 
     def decide(self,question:str,observations:list[dict],remaining:int)->Action:
         import torch
-        candidates=build_legal_actions(question,observations,cfg=self.cfg)
+        candidates=build_legal_actions(
+            question,observations,cfg=self.cfg,
+            remaining=remaining,max_tool_calls=self.max_tool_calls)
         tokids=choice_token_ids(self.tokenizer,len(candidates))
         prompt=action_prompt(self.tokenizer,question,observations,remaining,
                              candidates,cfg=self.cfg)
