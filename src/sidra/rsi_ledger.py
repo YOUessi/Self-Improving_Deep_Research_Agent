@@ -204,19 +204,27 @@ def record_generation(
     after=float(evaluator_report["after_verified"])
     if not (0<=before<=1 and 0<=after<=1):
         raise ValueError("bad verifier fractions")
-    promoted=after>before
+    pilot_positive=after>before
+    # Deprecated caller-supplied-hash ledger: it cannot prove that the
+    # checkpoint files exist or that any independent evaluation took place.
+    # CRITICAL: NEVER auto-promote using these unverifiable strings, even
+    # when public DEV improves. For actual file-hash + paired evaluation use
+    # rsi_generation_protocol.make_candidate_record().
     record={
         "generation":generation,
         "parent_sha256":parent_adapter_sha256,
         "checkpoint_sha256":new_adapter_sha256,
         "train_rollout_sha256":source_train_rollouts_sha256,
         "evaluation":evaluator_report,
-        "promoted":promoted,
-        "status":"promoted" if promoted else "kept_for_negative_analysis",
-        "actual_model_update":True,
-        "single_generation_improvement_observed":promoted,
+        "promoted":False,
+        "status":("pilot_pending_independent_eval" if pilot_positive
+                  else "kept_for_negative_analysis"),
+        "actual_model_update_file_verified":False,
+        "single_generation_dev_signal_observed":pilot_positive,
+        "next_selected_checkpoint_sha256":parent_adapter_sha256,
+        "rollback_checkpoint_sha256":parent_adapter_sha256,
         "multi_generation_RSI_completed":False,
-        "caution":"A single generation on public DEV is NOT a demonstrated multi-generation RSI loop; independent repeated validation required.",
+        "caution":"Caller-supplied checksums and one public DEV comparison cannot prove weight updates or multi-generation RSI. This deprecated ledger NEVER promotes; use SHA256 verification of actual checkpoint files and independent paired evaluation.",
     }
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(record,indent=2)+"\n")
