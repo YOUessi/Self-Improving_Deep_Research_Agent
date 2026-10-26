@@ -43,7 +43,10 @@ def assign_step_evidence_credit(episodes:list[dict], question:Question)->dict:
     gold=set(question.supporting_doc_ids)
     if not gold:
         raise ValueError("step evidence credit requires original TRAIN supporting IDs")
-    all_actions:dict[str,list[tuple[dict,float]]]=defaultdict(list)
+    # Center ONLY within (stage, within-stage occurrence number).
+    # Mixing first and second READs in one reward baseline would produce
+    # spurious nonzero advantages for identical replayed trajectories.
+    all_actions:dict[tuple[str,int],list[tuple[dict,float]]]=defaultdict(list)
     for ep in episodes:
         if ep.get("qid")!=question.question_id:
             raise ValueError("episode / TRAIN question ID mismatch")
@@ -65,6 +68,7 @@ def assign_step_evidence_credit(episodes:list[dict], question:Question)->dict:
         found:set[str]=set()
         read:set[str]=set()
         finish_count=0
+        stage_count:dict[str,int]=defaultdict(int)
         for i,(sample,step) in enumerate(zip(samples,steps,strict=True)):
             action=step.get("action")
             choices=sample.get("legal_actions",[])
@@ -106,30 +110,40 @@ def assign_step_evidence_credit(episodes:list[dict], question:Question)->dict:
                        +0.6*float(reward["strict_outcome"]))
             if not math.isfinite(score) or not 0<=score<=1.000001:
                 raise ValueError("invalid step score")
-            all_actions[kind].append((sample,score))
+            ordinal=stage_count[kind]
+            stage_count[kind]+=1
+            all_actions[(kind,ordinal)].append((sample,score))
         if finish_count>1:
             raise ValueError("one episode contains multiple terminal actions")
     report={"credit_mode":"step_evidence_delta_v2","groups":len(episodes),
             "gold_support_source":"original TRAIN only",
             "policy_or_action_catalog_uses_gold":False,
+            "advantage_baseline":"question + action_kind + same-kind ordinal",
             "by_kind":{}}
     for kind in STAGES:
-        pairs=all_actions[kind]
-        if not pairs:
-            report["by_kind"][kind]={"actions":0,"positive_raw":0,
-                                    "nonzero_advantages":0,"raw_mean":0.}
-            continue
+        report["by_kind"][kind]={
+            "actions":0,"positive_raw":0,"nonzero_advantages":0,
+            "raw_mean":0.,"nonempty_ordinals":0,
+        }
+    totals={kind:0. for kind in STAGES}
+    for (kind,ordinal),pairs in sorted(all_actions.items()):
         scores=[score for _,score in pairs]
-        advances=group_normalized_advantages(scores)
+        # No training signal from a singleton decision point.
+        advances=(group_normalized_advantages(scores) if len(scores)>=2
+                  else [0.]*len(scores))
         for (sample,score),adv in zip(pairs,advances,strict=True):
             sample["step_credit_raw"]=float(score)
             sample["step_credit_advantage"]=float(adv)
-        report["by_kind"][kind]={
-            "actions":len(pairs),
-            "positive_raw":sum(s>0 for s in scores),
-            "nonzero_advantages":sum(abs(v)>1e-8 for v in advances),
-            "raw_mean":round(sum(scores)/len(scores),6),
-        }
+            sample["step_credit_ordinal"]=ordinal
+        stats=report["by_kind"][kind]
+        stats["actions"]+=len(pairs)
+        stats["positive_raw"]+=sum(s>0 for s in scores)
+        stats["nonzero_advantages"]+=sum(abs(v)>1e-8 for v in advances)
+        stats["nonempty_ordinals"]+=1
+        totals[kind]+=sum(scores)
+    for kind,stats in report["by_kind"].items():
+        if stats["actions"]:
+            stats["raw_mean"]=round(totals[kind]/stats["actions"],6)
     report["credited_actions"]=sum(
         v["nonzero_advantages"] for v in report["by_kind"].values())
     report["assistant_action_tokens"]=sum(
