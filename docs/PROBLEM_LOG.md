@@ -172,3 +172,11 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 - **Observed:** first Tang shell attempt used `set -u` with an unset `sha` variable; it exited immediately before launching a model or writing results.
 - **Correction:** explicitly set `sha=62e3874013d38c90b8677e9d9683b5598787fd52` in the command. The corrected run produced E-006.
 - **Verification:** first command had no generated checkpoint/evaluation artifacts; second completed with saved JSONL and manifest at the pinned SHA.
+
+
+## P-020 — More JSON action parse failures on disjoint HotpotQA questions (OPEN)
+
+- **Reproduction:** Tang E-007, GitHub SHA `69614339669341eb9aa7e5c0881e83179fa61997`, non-thinking Qwen3-8B BF16 CPU+GPU, `--offset 2 --limit 2`, `max_new_tokens 64`, exact matched tool budget.
+- **Observed:** both single and multi-role policies produced malformed JSON at later turns. Single EM=0/2, strict verified=0/2; multi EM=0/2, strict verified=0/2 even with one bounded format retry; multi incurred +1 average model call and ~32 seconds/question additional latency.
+- **Evidence:** both runs' raw step traces and manifests preserved on Tang; no policy reads evaluator gold fields. A short generation cap and lack of hard JSON-schema constrained decoding are potential causes; no root cause proven yet because raw completions are not logged.
+- **Next controlled change:** add output-shape enforcement without leaking gold and compare fixed `max_new_tokens` settings, record per-step token counts and parse error frequencies, then test on fresh held-out question IDs. Do NOT declare an algorithmic gain based on retries or a tiny n=2 sample.
