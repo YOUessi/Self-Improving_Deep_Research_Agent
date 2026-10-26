@@ -98,6 +98,7 @@ def collect(dataset:Path,dev_manifest:Path,out:Path, *,
             trajectories.append({
                 "question_id":q.question_id,"rollout_index":sample,
                 "seed":sampled_seed,"trace":trace.as_dict(),
+                "model_action_io":base.action_io,
                 "reward":reward.as_dict()})
         advantages=group_normalized_advantages(
             [r["reward"]["total"] for r in trajectories])
@@ -123,6 +124,9 @@ def collect(dataset:Path,dev_manifest:Path,out:Path, *,
             "\n".join(q.question_id for q in chosen).encode()).hexdigest(),
         "wall_seconds":round(time.perf_counter()-started,2),
         "policy_updates":0,
+        "assistant_action_string_and_prompt_log":True,
+        "assistant_only_gradients_possible":True,
+        "caution":"CONSTRAINED inference log-probs differ from raw model logits; plain sequence replay is not equivalent to on-policy GRPO.",
     })
     (out/"summary.json").write_text(json.dumps(summary,indent=2,ensure_ascii=False)+"\n")
     return summary
