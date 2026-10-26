@@ -31,9 +31,20 @@ def test_qwen3_action_schema_sent_only_when_requested(monkeypatch):
     assert fmt["type"] == "json_schema"
     schema = fmt["json_schema"]["schema"]
     assert fmt["json_schema"]["strict"] is True
-    assert schema["additionalProperties"] is False
-    assert schema["properties"]["kind"]["enum"] == ["search", "read", "finish"]
-    assert schema["required"] == ["kind", "query", "doc_id", "answer", "citations"]
+    assert "oneOf" in schema
+    assert len(schema["oneOf"]) == 3
+    search, read, finish = schema["oneOf"]
+    assert search["properties"]["kind"]["const"] == "search"
+    assert search["required"] == ["kind", "query"]
+    assert search["additionalProperties"] is False
+    assert search["properties"]["query"]["maxLength"] == 120
+    assert read["properties"]["kind"]["const"] == "read"
+    assert read["required"] == ["kind", "doc_id"]
+    assert read["properties"]["doc_id"]["maxLength"] == 120
+    assert finish["properties"]["kind"]["const"] == "finish"
+    assert finish["required"] == ["kind", "answer", "citations"]
+    assert finish["properties"]["citations"]["maxItems"] == 5
+    assert all(x["additionalProperties"] is False for x in schema["oneOf"])
 
 
 def test_legacy_endpoint_has_no_schema_by_default(monkeypatch):
