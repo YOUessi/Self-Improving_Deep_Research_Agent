@@ -79,3 +79,11 @@ def test_trace_model_calls_counted_without_answer_gold():
     assert trace.prompt_tokens == 14
     assert trace.completion_tokens == 4
     assert trace.termination == "abstained"
+
+
+def test_multi_role_keeps_underlying_model_identity():
+    inner = OpenAICompatiblePolicy(
+        "http://127.0.0.1:18980/v1/chat/completions", "sidra-qwen3-8b-awq")
+    combined = MultiAgentPolicy(inner)
+    assert combined.model_name == "sidra-qwen3-8b-awq"
+    assert combined.model_policy.model == combined.model_name
