@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass
 
 from sidra.schema import Action
+from sidra.candidate_proposer import candidate_spans_v2
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class FiniteActionConfig:
     max_prompt_tokens: int = 2048
     max_read_context_chars: int = 880
     max_text_candidates: int = 3
+    answer_proposer: str = "legacy"  # explicit ablation; do not silently change existing policy
 
     def __post_init__(self):
         if not 2 <= self.max_candidates <= 10:
@@ -35,6 +37,8 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
+        if self.answer_proposer not in {"legacy","v2"}:
+            raise ValueError("unknown answer proposer; use legacy or v2")
 
 
 _STOP = frozenset({"The","A","An","In","On","This","That","Its","His",
@@ -148,9 +152,12 @@ def build_legal_actions(question:str,observations:list[dict],
         visible=list(read.values())
         # Use the union of *read* sources, not predicted supporting facts.
         citations=tuple(read.keys())[-3:]
+        # Compare V1 versus V2 only with explicitly versioned evaluation
+        # manifests. Both take ONLY model-visible tool observations and question.
+        proposer=(candidate_spans_v2 if cfg.answer_proposer=="v2" else _candidate_spans)
         for o in reversed(visible[-2:]):
-            for a in _candidate_spans(str(o.get("text","")),question,
-                                      cfg.max_text_candidates):
+            for a in proposer(str(o.get("text","")),question,
+                              cfg.max_text_candidates):
                 actions.append(Action(kind="finish",answer=a,citations=citations))
     # Abstain is always legal; a model cannot cite without reading.
     actions.append(Action(kind="finish",answer="",citations=()))
