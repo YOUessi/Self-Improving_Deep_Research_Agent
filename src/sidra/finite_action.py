@@ -302,7 +302,7 @@ def action_prompt(tokenizer,question:str,observations:list[dict],
     if cfg.evidence_state_mode=="v1":
         # One shared observable ledger conditions model prompt, action
         # candidate priorities, and post-rollout TRAIN credit. No gold fields.
-        state=derive_evidence_state(question,observations)
+        state=derive_evidence_state(question,observations,version=cfg.evidence_state_mode)
         exposed["evidence_state"]={
             "phase":state.evidence_gap,
             "distinct_READ":len(state.read_sources),
@@ -409,7 +409,8 @@ class FiniteActionPolicy:
                              candidates,cfg=self.cfg)
         prior=(action_logit_biases(question,observations,candidates)
                if self.cfg.answer_proposer in {"v4","v5"} else None)
-        state=(derive_evidence_state(question,observations)
+        state=(derive_evidence_state(question,observations,
+                                     version=self.cfg.evidence_state_mode)
                if self.cfg.evidence_state_mode in {"v1","v2"} else None)
         self.last_evidence_state=state.public_summary() if state is not None else None
         if state is not None:
