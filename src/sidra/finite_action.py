@@ -24,6 +24,7 @@ from sidra.candidate_proposer import candidate_spans_v2
 from sidra.bridge import bridge_candidates
 from sidra.action_prior import action_logit_biases
 from sidra.finish_candidates_v5 import visible_finish_options
+from sidra.evidence_state import derive_evidence_state
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class FiniteActionConfig:
     max_read_context_chars: int = 880
     max_text_candidates: int = 3
     answer_proposer: str = "legacy"  # explicit ablation; do not silently change existing policy
+    evidence_state_mode: str = "off"  # explicit GOLD-BLIND state-policy ablation
 
     def __post_init__(self):
         if not 2 <= self.max_candidates <= 10:
@@ -41,6 +43,10 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
+        if self.evidence_state_mode not in {"off","v1"}:
+            raise ValueError("evidence_state_mode must be off or v1")
+        if self.evidence_state_mode=="v1" and self.answer_proposer not in {"v4","v5"}:
+            raise ValueError("evidence state v1 currently requires V4/V5 finite catalogs")
         if self.answer_proposer not in {"legacy","v2","v3","v4","v5"}:
             raise ValueError("unknown answer proposer; use legacy, v2, v3, v4 or v5")
 
@@ -146,6 +152,12 @@ def build_legal_actions(question:str,observations:list[dict],
         if not latest_read:
             search_queries.extend(_entities(question,limit=4))
         search_queries.append(question.strip()[:180])
+    state=(derive_evidence_state(question,observations)
+           if cfg.evidence_state_mode=="v1" else None)
+    if state is not None and state.next_bridge_query and can_use_tools:
+        # Prioritize a specific *observed* unresolved bridge gap for the
+        # bounded SEARCH catalog, not a hidden supporting document ID.
+        search_queries=[state.next_bridge_query]+search_queries
     uniq=[]
     for q in search_queries:
         q=" ".join(q.split())[:180].strip()
@@ -229,6 +241,10 @@ def build_legal_actions(question:str,observations:list[dict],
         finish=factual[:min(4,budget)]
         remaining_slots=budget-len(finish)
         read_actions=[a for a in tools if a.kind=="read"]
+        if state is not None and read_actions:
+            # Bounded catalog must not drop the linked bridge source merely
+            # because its hit appears later than an irrelevant distractor.
+            read_actions.sort(key=lambda a:(-state.action_biases([a])[0],a.doc_id))
         search_actions=[a for a in tools if a.kind=="search"]
         # A first-hop read is more useful than repeating an earlier search;
         # retain independent legal bridge searches when there is capacity.
@@ -283,6 +299,17 @@ def action_prompt(tokenizer,question:str,observations:list[dict],
         "tool_history":redacted_observations(observations,cfg=cfg),
         "allowed_actions":[{"id":str(i),**a.to_dict()} for i,a in enumerate(actions)],
     }
+    if cfg.evidence_state_mode=="v1":
+        # One shared observable ledger conditions model prompt, action
+        # candidate priorities, and post-rollout TRAIN credit. No gold fields.
+        state=derive_evidence_state(question,observations)
+        exposed["evidence_state"]={
+            "phase":state.evidence_gap,
+            "distinct_READ":len(state.read_sources),
+            "linked_READ_pairs":len(state.linked_pairs),
+            "question_anchor_coverage":round(state.anchor_coverage,3),
+            "next_bridge_query":state.next_bridge_query,
+        }
     if "gold_answer" in json.dumps(exposed) or "supporting_doc_ids" in json.dumps(exposed):
         raise ValueError("hidden evaluator label leakage")
     msgs=[
@@ -369,6 +396,7 @@ class FiniteActionPolicy:
         self.prompt_tokens=0
         self.completion_tokens=0
         self.samples:list[dict]=[]
+        self.last_evidence_state:dict|None=None
 
     def decide(self,question:str,observations:list[dict],remaining:int)->Action:
         import torch
@@ -380,6 +408,14 @@ class FiniteActionPolicy:
                              candidates,cfg=self.cfg)
         prior=(action_logit_biases(question,observations,candidates)
                if self.cfg.answer_proposer in {"v4","v5"} else None)
+        state=(derive_evidence_state(question,observations)
+               if self.cfg.evidence_state_mode=="v1" else None)
+        self.last_evidence_state=state.public_summary() if state is not None else None
+        if state is not None:
+            delta=state.action_biases(candidates)
+            # Keep within logprob_of_action's documented bounded-bias rule.
+            prior=[round(max(-3.95,min(3.95,a+b)),6)
+                   for a,b in zip(prior or [0.0]*len(candidates),delta,strict=True)]
         self.model.eval()  # disable LoRA dropout for exact pre-update re-scoring
         device=self.model.device
         self.model_calls+=1
@@ -421,6 +457,8 @@ class FiniteActionPolicy:
             "choice_prob":float(prob[index]),
             "sampled_logprob":float(categorical_lp[index]),
             "action_logit_biases":prior,
+            "evidence_state":self.last_evidence_state,
+            "evidence_state_mode":self.cfg.evidence_state_mode,
             "tool_observation_targets":0,
             "action_token_targets":1,
         })
