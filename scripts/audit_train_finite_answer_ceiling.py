@@ -70,8 +70,11 @@ def audit(data:Path,out:Path,*,proposer:str="v4")->dict:
     if out.exists():raise FileExistsError(out)
     if proposer not in {"v3","v4"}:
         raise ValueError("expected frozen V3/V4 finite answer proposer")
-    if data.name!="converted" or ("train" not in data.parent.name
-                                  and "train" not in str(data).casefold()):
+    # Check the immediate partition directory, never substring-match the
+    # entire absolute path: pytest temp paths and home directories may contain
+    # "train" even when the actual partition is final_b160 or heldout.
+    parent_name=data.parent.name.casefold()
+    if data.name!="converted" or not parent_name.startswith("train"):
         raise ValueError("this tool requires original TRAIN converted dataset")
     docs,questions=load_dataset(data)
     if not questions or len({q.question_id for q in questions})!=len(questions):
