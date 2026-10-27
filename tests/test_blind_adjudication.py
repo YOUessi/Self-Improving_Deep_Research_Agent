@@ -116,3 +116,35 @@ def test_review_interpretation_requires_distinct_rater_and_locked_ids(tmp_path,m
         review_a=a,review_b=b,manifest=out/"MANIFEST.json")
     assert len(r["disagreements_require_third_party_resolution"])==3
     assert r["all_cases_gold_ready"] is False
+
+
+def test_known_sft_and_online_train_exclusion_is_proven(tmp_path,monkeypatch):
+    data,original,e026=fixture(tmp_path,monkeypatch)
+    sft=tmp_path/"previous_sft_actions.jsonl"
+    sft.write_text(json.dumps({"question_id":"TRAIN-id-012"})+"\n")
+    grpo=tmp_path/"prior_online_train.jsonl"
+    grpo.write_text(json.dumps({"qid":"TRAIN-id-013"})+"\n")
+    out=tmp_path/"packet_excluding_train"
+    meta=review.freeze_blind_packet(
+        dataset=data,original_train=original,prior_e026_rows=e026,
+        out=out,seed=2029,bridge_count=2,comparison_count=2,
+        prior_train_action_files=(sft,grpo))
+    selected={json.loads(x)["source_train_question_id"] for x in
+              (out/"REGISTRY_PRIVATE_DO_NOT_SHARE_WITH_REVIEWERS.jsonl").read_text().splitlines()}
+    assert not (selected & {"TRAIN-id-012","TRAIN-id-013"})
+    assert meta["prior_known_project_train_question_excluded"]==2
+    assert meta["disjoint_from_supplied_prior_train_artifacts_verified"] is True
+    assert meta["project_train_exclusion_paths_count"]==2
+    assert meta["prior_training_artifact_sha256"][str(sft)]==review.file_sha256(sft)
+
+
+def test_prior_rollout_cannot_include_test_or_unknown_question(tmp_path,monkeypatch):
+    data,original,e026=fixture(tmp_path,monkeypatch)
+    prior=tmp_path/"invalid_prior.jsonl"
+    prior.write_text(json.dumps({"question_id":"dev-outside"})+"\n")
+    with pytest.raises(ValueError,match="non-TRAIN"):
+        review.freeze_blind_packet(
+            dataset=data,original_train=original,prior_e026_rows=e026,
+            out=tmp_path/"not-created",bridge_count=2,comparison_count=2,
+            prior_train_action_files=(prior,))
+    assert not (tmp_path/"not-created").exists()
