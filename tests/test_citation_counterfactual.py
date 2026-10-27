@@ -104,7 +104,7 @@ def test_untrusted_gold_keys_never_reach_language_model():
 
 
 def test_sentence_window_reallocation_fail_closed_without_ablation():
-    scorer=ConditionalNLI()
+    scorer=ConditionalNLI(allow_question_only=True)
     t=trace()
     # A very large sentence in each document forces a 1450-character cap
     # when combined but not when considered separately.
