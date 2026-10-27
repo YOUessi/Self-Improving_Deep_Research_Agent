@@ -17,7 +17,7 @@ def test_exclusion_and_order_independent_of_answers():
     b=[dict(v,answer="CHANGED",supporting_facts={}) for v in a]
     second=choose(b,excluded,n=4)
     assert [x["id"] for x in first]==[x["id"] for x in second]
-    assert {x["id"] for x in first].isdisjoint(excluded)
+    assert {x["id"] for x in first}.isdisjoint(excluded)
 
 
 def test_no_replacement_and_no_silent_shortfall():
