@@ -5,7 +5,7 @@ import json
 import pytest
 
 from sidra.rsi_trainer_admission import (
-    Cohort,audit_training_admission,load_rows,sha,
+    Cohort,audit_training_admission,load_rows,sha,frozen_public_dev_ids,
 )
 
 
@@ -26,6 +26,15 @@ def data(tmp_path,*,split="train"):
         (directory/name).write_text(
             "\n".join(json.dumps(x) for x in items)+"\n")
     return directory
+
+
+def public_dev_manifest(tmp_path,*,ids=("devA","devB")):
+    path=tmp_path/"PUBLIC_DEV_IDS_ONLY.json"
+    path.write_text(json.dumps({
+        "pilot":{"selected_ids":[ids[0]],"questions":1},
+        "heldout":{"selected_ids":[ids[1]],"questions":1},
+    }))
+    return path
 
 
 def fake_cohort(generation:int,seed:int,source_index:int, *,
@@ -65,7 +74,8 @@ def test_empty_trainer_export_is_stable_and_immutable(tmp_path,monkeypatch):
                     proposal="Who else worked with the person in a different city?"),
     ])
     out=tmp_path/"out"
-    result=audit_training_admission(directory,cohorts(),out)
+    result=audit_training_admission(directory,cohorts(),out,
+                                 public_dev_id_manifest=public_dev_manifest(tmp_path))
     assert result["n_distinct_train_origins"]==2
     assert result["n_semantic_pending"]==1
     assert result["independent_verified_novel_labels"]==0
@@ -76,7 +86,8 @@ def test_empty_trainer_export_is_stable_and_immutable(tmp_path,monkeypatch):
     assert result["cohorts"][0]["sampling_seed"]==43
     assert "train0" not in (out/"ADMISSION_AUDIT.json").read_text()
     with pytest.raises(FileExistsError):
-        audit_training_admission(directory,cohorts(),out)
+        audit_training_admission(directory,cohorts(),out,
+                                 public_dev_id_manifest=public_dev_manifest(tmp_path))
 
 
 @pytest.mark.parametrize("case,expected",[
@@ -103,18 +114,21 @@ def test_no_cross_cohort_collision_or_source_forgery(tmp_path,monkeypatch,case,e
         b[1][0]["candidate_question_text"]=a[1][0]["candidate_question_text"]
     install_replay(monkeypatch,[a,b])
     with pytest.raises(ValueError,match=expected):
-        audit_training_admission(directory,cohorts(),tmp_path/"out")
+        audit_training_admission(directory,cohorts(),tmp_path/"out",
+                                 public_dev_id_manifest=public_dev_manifest(tmp_path))
     assert not (tmp_path/"out").exists()
 
 
 def test_non_train_or_sealed_path_rejected_without_reading_labels(tmp_path):
     bad=data(tmp_path,split="dev")
     with pytest.raises(ValueError,match="only TRAIN"):
-        audit_training_admission(bad,cohorts(),tmp_path/"out")
+        audit_training_admission(bad,cohorts(),tmp_path/"out",
+                                 public_dev_id_manifest=public_dev_manifest(tmp_path))
     sealed=tmp_path/"final-B160"
     sealed.mkdir()
     with pytest.raises(ValueError,match="sealed"):
-        audit_training_admission(sealed,cohorts(),tmp_path/"out")
+        audit_training_admission(sealed,cohorts(),tmp_path/"out",
+                                 public_dev_id_manifest=public_dev_manifest(tmp_path))
 
 
 def test_jsonl_parse_rejects_blank_or_nonobject(tmp_path):
@@ -125,3 +139,30 @@ def test_jsonl_parse_rejects_blank_or_nonobject(tmp_path):
     p.write_text("[]\n")
     with pytest.raises(ValueError,match="non-object"):
         load_rows(p)
+
+def test_frozen_dev_id_manifest_blocks_train_collision_before_cohort_read(tmp_path):
+    p=data(tmp_path)
+    forbidden=public_dev_manifest(tmp_path,ids=("train0","devB"))
+    with pytest.raises(ValueError,match="overlap frozen public DEV"):
+        audit_training_admission(p,cohorts(),tmp_path/"out",
+                                 public_dev_id_manifest=forbidden)
+    assert not (tmp_path/"out").exists()
+
+
+def test_corrupted_frozen_dev_ids_rejected_without_gold_access(tmp_path):
+    f=public_dev_manifest(tmp_path,ids=("devA","devA"))
+    with pytest.raises(ValueError,match="overlapping frozen DEV"):
+        frozen_public_dev_ids(f)
+    f=public_dev_manifest(tmp_path)
+    old=json.loads(f.read_text())
+    old["heldout"]["questions"]=2
+    f.write_text(json.dumps(old))
+    with pytest.raises(ValueError,match="malformed or overlapping"):
+        frozen_public_dev_ids(f)
+
+
+def test_final_b_manifest_read_blocked_even_by_id_only_loader(tmp_path):
+    sealed=tmp_path/"final-B160"
+    sealed.mkdir()
+    with pytest.raises(ValueError,match="sealed final-B"):
+        frozen_public_dev_ids(sealed/"SECRET_MANIFEST.json")
