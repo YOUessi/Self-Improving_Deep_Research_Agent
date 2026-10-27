@@ -52,6 +52,13 @@ def _episode(*,seed=0,missing_hit=False,novel_read=False):
         {"action":b,"observation":{"kind":"read","doc_id":"b","text":"Port city"}},
         {"action":answer},
     ]
+    if missing_hit:
+        # A real policy cannot READ b: it never appeared in a SEARCH hit.
+        # Terminate a valid incomplete-evidence trajectory instead of
+        # fabricating an impossible READ and expecting a verifier to accept it.
+        stop={"kind":"finish","answer":"unknown","citations":("a",)}
+        samples=samples[:3]+[_sample([stop],0)]
+        steps=steps[:3]+[{"action":stop}]
     return {
         "qid":_q().question_id,
         "seed":seed,
@@ -86,6 +93,15 @@ def test_actual_search_hit_absence_blocks_future_gold_read_label():
     assert eps[0]["action_samples"][1]["train_only_read_positive_indices"]==[0]
     assert eps[0]["action_samples"][2]["train_only_read_positive_indices"]==[0]
     assert "train_only_read_positive_indices" not in eps[0]["action_samples"][3]
+    # A forged READ of b after SEARCH excludes b must be rejected outright,
+    # rather than retroactively labeling an unreachable gold support.
+    bad=_episode(missing_hit=True)
+    forged={"kind":"read","doc_id":"b"}
+    bad["action_samples"][-1]=_sample([forged],0)
+    bad["trace"]["steps"][-1]={"action":forged,
+        "observation":{"kind":"read","doc_id":"b","text":"fabricated"}}
+    with pytest.raises(ValueError,match="READ must follow real SEARCH"):
+        annotate_train_read_preferences([bad,_episode(missing_hit=True)],_q())
 
 
 def test_dev_gold_rejected_and_future_tool_read_invalid():
