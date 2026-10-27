@@ -97,3 +97,20 @@ def test_false_action_trace_never_receives_train_credit():
     episodes[0]["action_samples"][0]["legal_actions"][0]["query"]="FAKE QUERY"
     with pytest.raises(ValueError,match="mismatch"):
         assign_evidence_state_credit(episodes,Q)
+
+
+def test_v2_reward_refuses_to_count_unrelated_distractor_read():
+    episodes=[episode(True),episode(False),episode(True),episode(False)]
+    audit=assign_evidence_state_credit(
+        episodes,Q,state_version="v2",state_delta_weight=0.25)
+    assert audit["state_version"]=="v2"
+    assert audit["mode"]=="evidence_state_delta_v2"
+    assert audit["nonzero_optimizer_action_advantages"]>0
+    # Invalid/missing source labels still cannot be passed into the policy
+    # prompt, only the after-episode TRAIN audit.
+    for ep in episodes:
+        for action in ep["action_samples"]:
+            assert action["evidence_state_before"]["state_version"]=="v2"
+            assert action["tool_observation_targets"]==0
+    with pytest.raises(ValueError,match="version"):
+        assign_evidence_state_credit(episodes,Q,state_version="v0")
