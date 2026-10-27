@@ -68,7 +68,7 @@ def evaluate_source_exposure(q, docs_by_id:dict, *,
 
 def audit(data:Path,out:Path,*,proposer:str="v4")->dict:
     if out.exists():raise FileExistsError(out)
-    if proposer not in {"v3","v4"}:
+    if proposer not in {"v3","v4","v5"}:
         raise ValueError("expected frozen V3/V4 finite answer proposer")
     # Check the immediate partition directory, never substring-match the
     # entire absolute path: pytest temp paths and home directories may contain
@@ -126,7 +126,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--train-data",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
-    p.add_argument("--proposer",choices=["v3","v4"],default="v4")
+    p.add_argument("--proposer",choices=["v3","v4","v5"],default="v4")
     a=p.parse_args()
     audit(a.train_data,a.out,proposer=a.proposer)
 
