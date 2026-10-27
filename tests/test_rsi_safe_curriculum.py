@@ -202,3 +202,90 @@ def test_cli_imports_outside_repo_root_with_src_only_path(tmp_path):
         cwd=tmp_path,env=env,capture_output=True,text=True,timeout=15)
     assert result.returncode==0,result.stderr
     assert "--public-dev-id-manifest" in result.stdout
+
+
+def test_independent_original_train_campaign_audit_and_tamper_controls(tmp_path):
+    from sidra.rsi_safe_curriculum_audit import audit_safe_original_train_campaign
+    from sidra.experiment import sha256_file
+    data,dev,history,_=fixture(tmp_path)
+    out=tmp_path/"frozen"
+    build_safe_original_train_campaign(
+        data,dev,[history],out,source_sha=SOURCE,
+        generations=3,per_generation=3,holdout_n=4,config=CFG)
+    def audit(path=out):
+        return audit_safe_original_train_campaign(
+            data,dev,[history],path,source_sha=SOURCE,config=CFG)
+    report=audit()
+    assert report["status"]=="PASS_SAFE_ORIGINAL_TRAIN_PROMPT_BANK_NOT_TRAINING"
+    assert report["distinct_original_TRAIN_curriculum_tasks"]==9
+    assert report["candidate_cohorts"]==3
+    assert report["optimizer_updates_proven"]==0
+    assert report["no_finalB_file_read"]
+    learner=out/"cohort_01"/"SOLVER_INPUT.jsonl"
+    original=learner.read_text()
+    manifest=out/"CAMPAIGN_MANIFEST.json"
+    manifest_obj=json.loads(manifest.read_text())
+    # Attacker rewrites the learner task AND fixes its SHA in the manifest.
+    records=jsonlines(learner)
+    records[0]["question"]="What city will the assistant invent as an answer?"
+    learner.write_text("\n".join(json.dumps(x,sort_keys=True) for x in records)+"\n")
+    manifest_obj["cohorts"][0]["solver_input_sha256"]=sha256_file(learner)
+    manifest.write_text(json.dumps(manifest_obj))
+    with pytest.raises(ValueError,match="identity|question|tier"):
+        audit()
+    learner.write_text(original)
+    manifest_obj["cohorts"][0]["solver_input_sha256"]=sha256_file(learner)
+    manifest.write_text(json.dumps(manifest_obj))
+    assert audit()["candidate_cohorts"]==3
+    verifier=out/"cohort_02"/"VERIFIER_ONLY_ORIGINAL_TRAIN_MAP.jsonl"
+    original_verifier=verifier.read_text()
+    maps=jsonlines(verifier)
+    maps[0]["source_train_question_id"]=maps[1]["source_train_question_id"]
+    verifier.write_text("\n".join(json.dumps(x,sort_keys=True) for x in maps)+"\n")
+    manifest_obj["cohorts"][1]["verifier_only_map_sha256"]=sha256_file(verifier)
+    manifest.write_text(json.dumps(manifest_obj))
+    with pytest.raises(ValueError,match="identity|question|tier"):
+        audit()
+    verifier.write_text(original_verifier)
+    manifest_obj["cohorts"][1]["verifier_only_map_sha256"]=sha256_file(verifier)
+    manifest.write_text(json.dumps(manifest_obj))
+    assert audit()["distinct_original_TRAIN_curriculum_tasks"]==9
+    # Even falsely setting a generation's optimizer or Challenger flag fails.
+    manifest_obj["cohorts"][2]["checkpoint_generations_completed"]=1
+    manifest.write_text(json.dumps(manifest_obj))
+    with pytest.raises(ValueError,match="unverified training"):
+        audit()
+
+
+def test_independent_campaign_rejects_mutated_holdout_even_after_hash_fix(tmp_path):
+    from sidra.rsi_safe_curriculum_audit import audit_safe_original_train_campaign
+    from sidra.experiment import sha256_file
+    data,dev,history,_=fixture(tmp_path)
+    out=tmp_path/"frozen"
+    build_safe_original_train_campaign(
+        data,dev,[history],out,source_sha=SOURCE,
+        generations=2,per_generation=3,holdout_n=4,config=CFG)
+    manifest=out/"CAMPAIGN_MANIFEST.json"
+    config=json.loads(manifest.read_text())
+    learner_id=jsonlines(out/"cohort_01"/"VERIFIER_ONLY_ORIGINAL_TRAIN_MAP.jsonl")[0][
+        "source_train_question_id"]
+    target=out/"VERIFIER_ONLY_ORIGINAL_TRAIN_HOLDOUT_IDS.jsonl"
+    rows=jsonlines(target)
+    rows[0]["original_train_question_id"]=learner_id
+    target.write_text("\n".join(json.dumps(x,sort_keys=True) for x in rows)+"\n")
+    config["independent_original_TRAIN_holdout_verifier_only_sha256"]=sha256_file(target)
+    manifest.write_text(json.dumps(config))
+    with pytest.raises(ValueError):
+        audit_safe_original_train_campaign(
+            data,dev,[history],out,source_sha=SOURCE,config=CFG)
+
+
+def test_audit_cli_imports_outside_repo_root(tmp_path):
+    import os,subprocess,sys
+    root=Path(__file__).resolve().parents[1]
+    env={**os.environ,"PYTHONPATH":str(root/"src")}
+    result=subprocess.run(
+        [sys.executable,str(root/"scripts/audit_rsi_safe_curriculum.py"),"--help"],
+        cwd=tmp_path,env=env,capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stderr
+    assert "--campaign" in result.stdout
