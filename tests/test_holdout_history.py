@@ -174,3 +174,47 @@ def test_refreeze_must_exclude_every_case_from_old_cohort_even_if_not_trained(
             old=old,valid_train_ids={f"q{i}" for i in range(1,10)},
             inputs=sources,dataset=tmp_path,original_train=tmp_path/"none",
             e026_rows=tmp_path/"none_e026",out=tmp_path/"new_packet")
+
+
+@pytest.mark.parametrize("disjoint,expected_exit", [(True,0),(False,2)])
+def test_audit_only_cli_is_read_only_and_fails_closed(
+    tmp_path, monkeypatch, capsys, disjoint, expected_exit
+):
+    import sys
+    from scripts import m7_audit_cross_workstream_holdout as cli
+    source=tmp_path/"original_train_1024.json"
+    source.write_text(json.dumps([
+        {"_id":f"TRAIN-{i:04d}"} for i in range(1024)]))
+    called=[]
+    def fake_audit(**kwargs):
+        called.append(kwargs)
+        return {
+            "audit_pass_disjointness":disjoint,
+            "frozen_cohort_any_exposure_count":0 if disjoint else 1,
+            "historical_source_sha256":{"/private/path":{"sha256":"abcdef"}},
+        }, set()
+    monkeypatch.setattr(cli,"exposure_report",fake_audit)
+    args=[
+        "m7_audit_cross_workstream_holdout.py",
+        "--audit-only", "--frozen",str(tmp_path/"frozen"),
+        "--dataset",str(tmp_path/"train"),
+        "--original-train",str(source),
+        "--prior-e026-rows",str(tmp_path/"e026.jsonl"),
+    ]
+    for flag in (
+        "--prior-train-jsonl", "--teacher-actions", "--optimizer-summary",
+        "--rsi-solver", "--rsi-reserved", "--obsolete-registry",
+    ):
+        args += [flag, str(tmp_path/(flag[2:]+".jsonl"))]
+    monkeypatch.setattr(sys,"argv",args)
+    if expected_exit:
+        with pytest.raises(SystemExit) as error:
+            cli.main()
+        assert error.value.code==expected_exit
+    else:
+        cli.main()
+    stdout=capsys.readouterr().out
+    assert "audit_pass_disjointness" in stdout
+    assert "/private/path" not in stdout
+    assert len(called)==1
+    assert not (tmp_path/"new").exists()
