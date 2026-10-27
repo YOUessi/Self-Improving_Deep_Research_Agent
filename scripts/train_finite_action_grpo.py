@@ -32,6 +32,7 @@ from sidra.finite_action import FiniteActionPolicy,FiniteActionConfig,logprob_of
 from sidra.io import load_dataset,save_jsonl
 from sidra.train_reward import score_train_rollout,group_normalized_advantages
 from sidra.step_credit import assign_step_evidence_credit
+from sidra.evidence_state_credit import assign_evidence_state_credit
 from sidra.finish_preference import annotate_train_finish_preferences,finish_positive_nll
 from sidra.read_preference import annotate_train_read_preferences,read_positive_nll
 from sidra.gpu_coordination import assert_no_external_gpu_jobs
@@ -68,7 +69,8 @@ def select_train_only(questions,dev_ids:set[str],*,seed:int,n:int,
 
 def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
                 ctx:int,max_tool_calls:int,selection_mode:str="sample",
-                answer_proposer:str="legacy"):
+                answer_proposer:str="legacy",
+                evidence_state_mode:str="off"):
     import torch
     from transformers import AutoModelForCausalLM,AutoTokenizer
     from peft import PeftModel
@@ -86,7 +88,8 @@ def load_policy(model_path:Path,adapter_path:Path,*,seed:int,trainable:bool,
     model.eval()  # Important: dropout must be disabled for policy equality.
     return FiniteActionPolicy(
         model,tokenizer,seed=seed,
-        cfg=FiniteActionConfig(max_prompt_tokens=ctx,answer_proposer=answer_proposer),
+        cfg=FiniteActionConfig(max_prompt_tokens=ctx,answer_proposer=answer_proposer,
+                               evidence_state_mode=evidence_state_mode),
         adapter_path=str(adapter_path),
         model_name=str(model_path),
         max_tool_calls=max_tool_calls,
@@ -134,7 +137,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
         raise ValueError("FINISH auxiliary weight must be between 0 and 1")
     if not math.isfinite(read_aux_weight) or not 0<=read_aux_weight<=1:
         raise ValueError("READ auxiliary weight must be between 0 and 1")
-    if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2"}:
+    if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2","evidence_state_delta_v1"}:
         raise ValueError("unknown TRAIN credit mode")
     active=[]
     for ep in episodes:
@@ -164,7 +167,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
                 adv=float(stage_adv[kind])
                 if not math.isfinite(adv):
                     raise ValueError("nonfinite stage advantage")
-            elif credit_mode=="step_evidence_delta_v2":
+            elif credit_mode in {"step_evidence_delta_v2","evidence_state_delta_v1"}:
                 # Only post-rollout TRAIN gold scorer may attach this number.
                 # The policy never sees it in prompts or legal action catalogs.
                 if "step_credit_advantage" not in a:
@@ -283,17 +286,20 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           curriculum_teacher:Path|None=None,
           credit_mode:str="episode_total",
           finish_aux_weight:float=0.0,
-          read_aux_weight:float=0.0)->dict:
+          read_aux_weight:float=0.0,
+           evidence_state_mode:str="off")->dict:
     if out.exists():raise FileExistsError(out)
     if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
     if generations<2:raise ValueError("need >=2 generations per task")
-    if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2"}:
+    if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2","evidence_state_delta_v1"}:
         raise ValueError("unknown TRAIN credit mode")
     if not math.isfinite(finish_aux_weight) or not 0<=finish_aux_weight<=1:
         raise ValueError("invalid TRAIN-supervised FINISH preference weight")
     if not math.isfinite(read_aux_weight) or not 0<=read_aux_weight<=1:
         raise ValueError("invalid TRAIN-supervised READ preference weight")
+    if credit_mode=="evidence_state_delta_v1" and evidence_state_mode!="v1":
+        raise ValueError("state-delta reward requires state-aware inference policy")
     import torch,transformers,peft
     # Catch foreign vLLM startup even before CUDA memory appears in nvidia-smi.
     # Never terminate / signal another user process.
@@ -342,7 +348,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=True,ctx=max_context,
                        max_tool_calls=max_tool_calls,
-                       answer_proposer=answer_proposer)
+                       answer_proposer=answer_proposer,
+                        evidence_state_mode=evidence_state_mode)
     model=policy.model
     torch.cuda.reset_peak_memory_stats()
     optimizer=torch.optim.AdamW(
@@ -394,6 +401,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                 stage_group_advantages(versions)
             if credit_mode=="step_evidence_delta_v2":
                 step_credit_reports.append(assign_step_evidence_credit(versions,q))
+            elif credit_mode=="evidence_state_delta_v1":
+                step_credit_reports.append(assign_evidence_state_credit(versions,q))
             varying+=int(any(abs(x)>1e-6 for x in adv))
             trajectories.extend(versions)
             print("FINITE_ONLINE_GROUP",iteration,i+1,len(batch),
@@ -448,6 +457,25 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                 "gold_used_in_policy_or_legal_catalog":False,
                 "source_split":"train",
             }
+        if credit_mode=="evidence_state_delta_v1":
+            report["evidence_state_credit_audit"]={
+                "rollout_groups":len(step_credit_reports),
+                "nonzero_optimizer_action_advantages":sum(
+                    a["nonzero_optimizer_action_advantages"]
+                    for a in step_credit_reports),
+                "state_delta_weight":0.25,
+                "observable_only_before_action":True,
+                "original_TRAIN_gold_only_after_action":True,
+                "per_kind":{
+                    kind:{
+                        "actions":sum(a["by_kind"][kind]["actions"]
+                                      for a in step_credit_reports),
+                        "positive_state_deltas":sum(
+                            a["by_kind"][kind]["nonzero_state_delta"]
+                            for a in step_credit_reports),
+                    } for kind in ("search","read","finish")},
+                "reward_scope":"TRAIN-only custom per-action on-policy credit",
+            }
         report.update({
             "iteration":iteration,
             "episodes":len(trajectories),"nonconstant_groups":varying,
@@ -474,6 +502,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         "stage":"real_online_finite_constrained_categorical_grpo_style",
         "policy_class":"one-digit LM action selection from nonoracle legal catalog",
         "answer_proposer":policy.cfg.answer_proposer,
+        "evidence_state_mode":policy.cfg.evidence_state_mode,
         "native_TRL_GRPOTrainer":False,"multi_turn_Search_Read_Finish":True,
         "sampling_and_loss_distribution_match":True,
         "original_vLLM_JSON_sampling_used":False,
@@ -511,7 +540,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
 def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
              out:Path,limit:int,seed:int,max_steps:int,max_tool_calls:int,
              max_context:int,split:str,greedy:bool=False,
-             answer_proposer:str="legacy")->dict:
+             answer_proposer:str="legacy",
+              evidence_state_mode:str="off")->dict:
     # This is a PUBLIC research pilot, not the gated sealed final benchmark.
     if split not in {"dev","train"}:
         raise ValueError("exploratory finite-action evaluation forbids sealed TEST")
@@ -520,7 +550,8 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
                        trainable=False,ctx=max_context,
                        max_tool_calls=max_tool_calls,
                        selection_mode="greedy" if greedy else "sample",
-                       answer_proposer=answer_proposer)
+                       answer_proposer=answer_proposer,
+                        evidence_state_mode=evidence_state_mode)
     config=AgentConfig(max_steps=max_steps,max_tool_calls=max_tool_calls,
                        search_top_k=3)
     summary=evaluate(data,split,policy,out,config=config,
@@ -531,6 +562,7 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
     extra={
         "policy_class":"finite_constrained_categorical_agent",
         "answer_proposer":policy.cfg.answer_proposer,
+        "evidence_state_mode":policy.cfg.evidence_state_mode,
         "selection_mode":policy.selection_mode,
         "source_adapter_sha256":_sha256(adapter_path/"adapter_model.safetensors"),
         "categorical_distribution":(
@@ -569,6 +601,8 @@ def main():
         x.add_argument("--answer-proposer",choices=["legacy","v2","v3","v4","v5"],
                        default="legacy",
                        help="Non-oracle lexical candidate catalog (frozen for A/B)")
+        x.add_argument("--evidence-state",choices=["off","v1"],default="off",
+                       help="Opt-in gold-blind unified evidence-state logits and prompt")
     t.add_argument("--dev-manifest",required=True,type=Path)
     t.add_argument("--curriculum-teacher",type=Path,default=None,
                    help="Optional frozen TRAIN-only strict-success teacher directory; "
@@ -586,7 +620,8 @@ def main():
                         "on already exposed legal actions in real visited states; "
                         "hybrid supervision, NOT pure GRPO reward.")
     t.add_argument("--credit-mode",choices=["episode_total","stage_credit_v1",
-                                            "step_evidence_delta_v2"],
+                                             "step_evidence_delta_v2",
+                                             "evidence_state_delta_v1"],
                    default="episode_total",
                    help="Stage/step TRAIN rewards are experimental custom on-policy "
                         "group-relative policy gradients, NOT native TRL GRPO.")
@@ -598,7 +633,8 @@ def main():
     common=dict(data=args.data,model_path=args.model,adapter_path=args.adapter,
                 out=args.out,seed=args.seed,max_steps=args.max_steps,
                 max_tool_calls=args.max_tool_calls,max_context=args.max_context,
-                answer_proposer=args.answer_proposer)
+                answer_proposer=args.answer_proposer,
+                 evidence_state_mode=args.evidence_state)
     if args.command=="train":
         train(**common,dev_manifest=args.dev_manifest,
               groups=args.groups,generations=args.generations,
