@@ -164,7 +164,8 @@ def compare(pilot:Path,traces:Path,out:Path,*,endpoint:str,model:str)->dict:
                 try:
                     response,usage,seconds=get_solver_output(
                         endpoint,sentence_prompt(trace.question,catalog,model=model),
-                        timeout=75)
+                        timeout=75,
+                        expected_keys=frozenset({"answer","sentence_ids"}))
                     stats["extra_prompt_tokens"]+=int(usage.get("prompt_tokens") or 0)
                     stats["extra_completion_tokens"]+=int(usage.get("completion_tokens") or 0)
                     stats["extra_solver_milliseconds"]+=round(seconds*1000)
