@@ -23,6 +23,7 @@ from sidra.experiment import sha256_file,git_sha
 from sidra.io import iter_jsonl,save_jsonl,load_dataset
 from sidra.retrieval import BM25Index
 from sidra.rsi_trace_audit import audit_tool_trace
+from sidra.rsi_model_io_audit import audit_model_action_io
 from sidra.schema import AgentTrace,Document,Question
 from sidra.train_reward import score_train_rollout
 
@@ -280,6 +281,12 @@ def audit_solver_run(train_data:Path,campaign:Path,pack:Path,run:Path,
         raise ValueError("Solver trace cardinality or ID mismatch")
     cfg=config or AgentConfig(max_steps=6,max_tool_calls=5,search_top_k=3)
     if r["config"]!=asdict(cfg):raise ValueError("tool budget changed")
+    checked_io=audit_model_action_io([AgentTrace(**x) for x in traces],io,
+                                     seed=r["seed"],config=cfg)
+    if (checked_io["verified_response_count"]!=r["model_calls"]
+        or checked_io["prompt_tokens"]!=r["prompt_tokens"]
+        or checked_io["completion_tokens"]!=r["completion_tokens"]):
+        raise ValueError("model usage counters disagree with replayed raw API responses")
     docs_by_id={d.doc_id:d for d in projection}
     by_opaque={p["challenge_id"]:p for p in prompts}
     index=BM25Index(projection,title_boost=cfg.title_boost)
@@ -319,6 +326,7 @@ def audit_solver_run(train_data:Path,campaign:Path,pack:Path,run:Path,
         "stage":"independent_original_TRAIN_solver_verification",
         "n":totals["n"],
         "tool_replay_valid":totals["n"],
+        "model_action_io_replay":checked_io,
         "strict_original_TRAIN_successes":totals["strict"],
         "legal_finished_answers":totals["finish"],
         "nonerror_terminations":totals["nonerror"],
