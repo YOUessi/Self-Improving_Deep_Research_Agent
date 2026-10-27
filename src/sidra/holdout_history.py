@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter, defaultdict
 from pathlib import Path
 
 from sidra.semantic_contrast import file_sha256
@@ -153,7 +152,6 @@ def exposure_report(
     old_overlaps = old & all_used
     # Distinguish prior optimizer/teacher/real-Solver exposure from a
     # separately discarded candidate packet, which never trained a model.
-    workstream_ids = all_used - by_kind["registry"]
     workstream_overlaps = old & set().union(
         *(ids for kind, ids in by_kind.items() if kind != "registry"))
     obsolete_only = old_overlaps - workstream_overlaps
@@ -227,6 +225,13 @@ def make_refreeze(
     final_ids = read_registry_verified(cohort_dir, valid_train_ids)
     if final_ids & exposed or len(final_ids)!=64:
         raise AssertionError("new holdout is contaminated or incomplete")
+    # Read-only race check: an independent workstream might have written to
+    # one of these history sources during this CPU-only freeze operation.
+    for path, source in report["historical_source_sha256"].items():
+        if file_sha256(Path(path)) != source["sha256"]:
+            raise RuntimeError("history source changed during frozen cohort selection")
+    if file_sha256(old/"REGISTRY_PRIVATE_DO_NOT_SHARE_WITH_REVIEWERS.jsonl") != report["frozen_registry_sha256"]:
+        raise RuntimeError("old blind packet changed during refreeze")
     aggregate = {
         **report,
         "previous_cohort_usable": False,
