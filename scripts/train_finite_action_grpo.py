@@ -177,7 +177,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
         for _,a in active:
             now=float(logprob_of_action(
                 model,a["prompt_ids"],a["legal_choice_token_ids"],
-                a["selected_index"]).detach())
+                a["selected_index"],logit_biases=a.get("action_logit_biases")).detach())
             mismatch=abs(now-a["sampled_logprob"])
             max_error=max(max_error,mismatch)
             if mismatch>1e-3:
@@ -191,7 +191,8 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
     losses=[]
     for adv,a in active:
         new=logprob_of_action(
-            model,a["prompt_ids"],a["legal_choice_token_ids"],a["selected_index"])
+            model,a["prompt_ids"],a["legal_choice_token_ids"],a["selected_index"],
+            logit_biases=a.get("action_logit_biases"))
         old=torch.tensor(a["sampled_logprob"],device=new.device,dtype=new.dtype)
         ratio=torch.exp((new-old).clamp(-20,20))
         clipped=torch.clamp(ratio,min=1-clip,max=1+clip)
@@ -460,7 +461,7 @@ def main():
         x.add_argument("--max-steps",type=int,default=6)
         x.add_argument("--max-tool-calls",type=int,default=5)
         x.add_argument("--max-context",type=int,default=2048)
-        x.add_argument("--answer-proposer",choices=["legacy","v2","v3"],
+        x.add_argument("--answer-proposer",choices=["legacy","v2","v3","v4"],
                        default="legacy",
                        help="Non-oracle lexical candidate catalog (frozen for A/B)")
     t.add_argument("--dev-manifest",required=True,type=Path)
