@@ -87,6 +87,7 @@ def _paired_fixture(tmp_path):
         "dev_manifest_sha256":hold["frozen_public_dev_manifest_sha256"],
         "selected_training_ids":["train1"],"num_updates":2,
         "old_adapter_sha256":oldsha,"new_adapter_sha256":newsha,
+        "answer_proposer":"v3",
     }))
     arms=[]
     for label,adaptersha,scored in (("before",oldsha,0),("after",newsha,1)):
@@ -159,3 +160,32 @@ def test_train_holdout_audit_standalone_cli_works_with_only_src_pythonpath():
     )
     assert result.returncode==0,result.stderr
     assert "--trained" in result.stdout
+
+
+def test_train_holdout_audit_accepts_exact_matched_v4_policy(tmp_path):
+    before,after,source,trained=_paired_fixture(tmp_path)
+    train=trained/"TRAIN_SUMMARY.json"
+    record=json.loads(train.read_text())
+    record["answer_proposer"]="v4"
+    train.write_text(json.dumps(record))
+    for arm in (before,after):
+        policy_path=arm/"FINITE_ACTION_POLICY.json"
+        policy=json.loads(policy_path.read_text())
+        policy["answer_proposer"]="v4"
+        policy_path.write_text(json.dumps(policy))
+    report=audit_holdout(before,after,source,trained,tmp_path/"v4pair.json",
+                         draws=200)
+    assert report["n"]==1
+    assert report["same_masked_behavior_policy"]
+    assert report["eligible_to_promote_checkpoint"] is False
+
+
+def test_train_holdout_audit_refuses_v3_vs_v4_model_policy_mismatch(tmp_path):
+    before,after,source,trained=_paired_fixture(tmp_path)
+    train=trained/"TRAIN_SUMMARY.json"
+    record=json.loads(train.read_text())
+    record["answer_proposer"]="v4"
+    train.write_text(json.dumps(record))
+    # Evaluated V3 decoder cannot be reported as V4 training evidence.
+    with pytest.raises(ValueError,match="checkpoint or actual"):
+        audit_holdout(before,after,source,trained,tmp_path/"wrong.json",draws=200)
