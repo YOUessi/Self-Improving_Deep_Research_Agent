@@ -87,7 +87,7 @@ def test_inspect_gpu_is_read_only_and_fail_closed(monkeypatch):
 
 
 @pytest.mark.parametrize("bad", [
-    "A,B", "bogus", "", "name with spaces", "../wrong",
+    "A,B", " leading", "", "name with spaces", "../wrong",
 ])
 def test_invalid_workstream_rejected(tmp_path, bad):
     with pytest.raises(ValueError):
