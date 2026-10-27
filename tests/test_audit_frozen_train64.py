@@ -23,7 +23,7 @@ def _jsonl(path,rows):
 
 def _fixture(tmp_path):
     frozen=tmp_path/"frozen"
-    frozen.mkdir()
+    frozen.mkdir(parents=True)
     qs=[{"question_id":f"train-{i:03d}","split":"train",
          "question":"Where?","gold_answer":"Y",
          "supporting_doc_ids":["a","b"]} for i in range(64)]
