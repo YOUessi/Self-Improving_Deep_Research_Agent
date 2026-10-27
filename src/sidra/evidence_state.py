@@ -15,7 +15,7 @@ links can be wrong, and lexical coverage is only a research heuristic.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Sequence
 
@@ -77,6 +77,9 @@ class EvidenceState:
     anchor_coverage:float
     next_bridge_query:str | None
     potential:float
+    version:str="v1"
+    anchored_read_ids:tuple[str,...]=()
+    anchored_linked_pairs:tuple[tuple[str,str],...]=()
 
     @property
     def read_ids(self)->frozenset[str]:
@@ -101,6 +104,9 @@ class EvidenceState:
         """No labels, source text, private annotations or score of correctness."""
         return {
             "phase":self.evidence_gap,
+            "state_version":self.version,
+            "question_anchored_read_sources":len(self.anchored_read_ids),
+            "question_anchored_bridge_pairs":len(self.anchored_linked_pairs),
             "distinct_read_sources":len(self.read_sources),
             "unread_search_hits":len(self.available_unread),
             "cross_document_title_links":len(self.linked_pairs),
@@ -129,6 +135,8 @@ class EvidenceState:
         differentiable re-scoring. No action is granted an invalid DocID.
         Biases are capped; uncertainty never silently forces a wrong answer.
         """
+        if self.version=="v2":
+            return self._chain_action_biases(actions)
         qterms=_terms(self.question)
         reads=self.read_sources
         nread=len(reads)
@@ -181,6 +189,54 @@ class EvidenceState:
             scores.append(round(max(-2.0,min(2.0,score)),6))
         return scores
 
+    def _chain_action_biases(self,actions:Sequence[Action])->list[float]:
+        """V2: prioritize question-anchored, source-linked, actual evidence chains."""
+        read_ids=self.read_ids
+        hits={did:(title,snippet) for did,title,snippet in self.exposed_hits}
+        anchored=[d for d in self.read_sources if d.doc_id in self.anchored_read_ids]
+        result=[]
+        for a in actions:
+            score=0.0
+            if a.kind=="read":
+                if a.doc_id not in hits or a.doc_id in read_ids:
+                    raise ValueError("READ action is not an exposed unread document")
+                title,snippet=hits[a.doc_id]
+                visible_anchor=_is_question_anchor(title,self.question)
+                bridge=any(_strong_title_link(title,d.text)
+                           for d in anchored)
+                score=(1.55 if bridge else 0.75 if visible_anchor else -0.25)
+                # Only context shown in the hit is available: generic
+                # question-overlap on distractors is NOT a strong bridge.
+                score+=0.25*int(bool(_terms(self.question)&_terms(snippet)))
+            elif a.kind=="search":
+                if _normalized(a.query) in {
+                    _normalized(x) for x in self.searched_queries}:
+                    raise ValueError("duplicate SEARCH query")
+                score=(
+                    0.9 if anchored and self.next_bridge_query and
+                           _normalized(a.query)==_normalized(self.next_bridge_query)
+                    else 0.12 if not anchored else -0.2
+                )
+                if self.anchored_linked_pairs:
+                    score-=0.55
+            elif a.kind=="finish":
+                if not a.answer:
+                    score=-0.35 if len(self.read_sources)<2 else -0.05
+                else:
+                    if len(self.read_sources)<2 or not set(a.citations)<=read_ids:
+                        raise ValueError("FINISH without real two-source READs")
+                    supported,cooccur=self.candidate_support(a.answer)
+                    if a.answer.casefold() in _POLAR:
+                        score=0.05+0.2*int(bool(self.anchored_linked_pairs))
+                    else:
+                        score=(0.6 if supported else -0.95)
+                        score+=0.65*cooccur
+                        score+=0.65*int(bool(self.anchored_linked_pairs))
+            else:
+                raise ValueError("invalid candidate action")
+            result.append(round(max(-1.95,min(1.95,score)),6))
+        return result
+
 
 def _sentences_with_answer(text:str,answer:str)->list[str]:
     import re
@@ -188,9 +244,12 @@ def _sentences_with_answer(text:str,answer:str)->list[str]:
     return [x for x in parts[:80] if _phrase_in(answer,x)]
 
 
-def derive_evidence_state(question:str,observations:list[dict])->EvidenceState:
+def derive_evidence_state(question:str,observations:list[dict], *,
+                          version:str="v1")->EvidenceState:
     if not question.strip():
         raise ValueError("nonempty question required")
+    if version not in {"v1","v2"}:
+        raise ValueError("evidence state version must be v1 or v2")
     queries:list[str]=[]
     hits:dict[str,tuple[str,str]]={}
     reads:dict[str,EvidenceRead]={}
@@ -252,6 +311,33 @@ def derive_evidence_state(question:str,observations:list[dict])->EvidenceState:
                +0.25*int(bool(pairs))
                +0.10*int(bool(source_list and not gap)))
     potential=max(0.,min(1.,potential))
+    anchor_ids=tuple(d.doc_id for d in source_list
+                     if _is_question_anchor(d.title,question))
+    if version=="v2":
+        # A true candidate evidence CHAIN needs an original question anchor
+        # and an observed title reference to a distinct actually READ doc.
+        # Mere additional READ count and broad bag-of-words coverage no
+        # longer yield a positive progress delta.
+        anchored=set(anchor_ids)
+        anchored_pairs=tuple(sorted(
+            pair for pair in pairs if any(d in anchored for d in pair)
+            and _two_docs_have_strong_link(pair,source_list)
+        ))
+        exposed_anchor=any(
+            _is_question_anchor(title,question)
+            for _did,title,_snippet in frontier)
+        anchor_strength=max(
+            (d.relevance for d in source_list if d.doc_id in anchored),
+            default=0.0)
+        potential=(0.10*int(exposed_anchor)
+                   +0.25*int(bool(anchor_ids))
+                   +0.45*int(bool(anchored_pairs))
+                   +0.20*anchor_strength)
+        potential=max(0.,min(1.,potential))
+        if not anchor_ids:
+            gap=None
+    else:
+        anchored_pairs=()
     return EvidenceState(
         question=question,searched_queries=tuple(queries),
         exposed_hits=frontier,read_sources=source_list,
@@ -259,4 +345,37 @@ def derive_evidence_state(question:str,observations:list[dict])->EvidenceState:
         anchor_coverage=round(anchor_coverage,6),
         next_bridge_query=gap,
         potential=round(potential,6),
+        version=version,
+        anchored_read_ids=anchor_ids,
+        anchored_linked_pairs=anchored_pairs,
     )
+
+
+def _is_question_anchor(title:str,question:str)->bool:
+    """Conservative original-question entity anchor, NEVER a gold label."""
+    core=_normalized(title)
+    tt=_terms(title)
+    if not core or len(core)<5 or not tt:
+        return False
+    # Whole observed title as phrase in the question avoids 'City' in
+    # 'Citywalk'. Permit more than one meaningful token.
+    return _phrase_in(title,question)
+
+
+def _strong_title_link(title:str,text:str)->bool:
+    """A cross-document link must mention a nontrivial complete title."""
+    meaningful=_terms(title)
+    return (len(_normalized(title))>=7 and
+            (len(meaningful)>=2 or
+             (len(meaningful)==1 and len(next(iter(meaningful)))>=7)) and
+            _phrase_in(title,text))
+
+
+def _two_docs_have_strong_link(pair:tuple[str,str],
+                              sources:tuple[EvidenceRead,...])->bool:
+    byid={d.doc_id:d for d in sources}
+    if pair[0] not in byid or pair[1] not in byid:
+        return False
+    a,b=byid[pair[0]],byid[pair[1]]
+    return (_strong_title_link(a.title,b.text) or
+            _strong_title_link(b.title,a.text))
