@@ -16,10 +16,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import math
 from dataclasses import dataclass
 
 from sidra.schema import Action
 from sidra.candidate_proposer import candidate_spans_v2
+from sidra.bridge import bridge_candidates
+from sidra.action_prior import action_logit_biases
 
 
 @dataclass(frozen=True)
@@ -37,8 +40,8 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
-        if self.answer_proposer not in {"legacy","v2","v3"}:
-            raise ValueError("unknown answer proposer; use legacy or v2")
+        if self.answer_proposer not in {"legacy","v2","v3","v4"}:
+            raise ValueError("unknown answer proposer; use legacy, v2, v3 or v4")
 
 
 _STOP = frozenset({"The","A","An","In","On","This","That","Its","His",
@@ -129,6 +132,14 @@ def build_legal_actions(question:str,observations:list[dict],
     else:
         # Second-hop expansion is strictly from observed text and snippet titles.
         latest_read=list(read.values())[-2:]
+        if cfg.answer_proposer=="v4" and latest_read:
+            # Rank bridge queries ONLY using actually read text and the
+            # question, never gold or unretrieved corpus documents.
+            last=latest_read[-1]
+            for proposal in bridge_candidates(
+                question,str(last.get("title","")),str(last.get("text",""))[:2800],
+                prior_queries=asked)[:3]:
+                search_queries.append(proposal.query)
         for o in reversed(latest_read):
             search_queries.extend(_entities(str(o.get("text",""))[:1100],limit=8))
         if not latest_read:
@@ -155,13 +166,13 @@ def build_legal_actions(question:str,observations:list[dict],
         # been ACTUALLY read before producing a factual answer. This is a
         # structural, observation-only rule, not a prediction of gold support.
         # Its mask changes the policy class and must be A/B evaluated separately.
-        finish_allowed=(cfg.answer_proposer!="v3" or len(read)>=2)
-        citations=(tuple(read.keys()) if cfg.answer_proposer=="v3"
+        finish_allowed=(cfg.answer_proposer not in {"v3","v4"} or len(read)>=2)
+        citations=(tuple(read.keys()) if cfg.answer_proposer in {"v3","v4"}
                    else tuple(read.keys())[-3:])
         # V2/V3 share the nonoracle lexical answer proposer. V3 differs only
         # by the structural evidence gate, complete visible citation set, and
         # preserved answer-choice capacity under max_candidates.
-        proposer=(candidate_spans_v2 if cfg.answer_proposer in {"v2","v3"}
+        proposer=(candidate_spans_v2 if cfg.answer_proposer in {"v2","v3","v4"}
                   else _candidate_spans)
         if finish_allowed:
             for o in reversed(visible[-2:]):
@@ -177,7 +188,7 @@ def build_legal_actions(question:str,observations:list[dict],
         if key not in unique:
             unique.add(key)
             result.append(a)
-    if cfg.answer_proposer=="v3":
+    if cfg.answer_proposer in {"v3","v4"}:
         # Old catalog truncated its tail before the model saw any FINISH
         # candidates. Reserve space for up to four fact-bearing options,
         # without ever admitting an unseen document or an illegal tool action.
@@ -278,7 +289,7 @@ def choice_token_ids(tokenizer,count:int)->list[int]:
 
 
 def logprob_of_action(model,prompt_ids:list[int],choice_ids:list[int],
-                      picked:int):
+                      picked:int,*,logit_biases:list[float]|None=None):
     """Identical legal-choice normalization used for behavior AND training.
 
     The scalar is log P(choice index | prompt, allowed IDs), with all
@@ -293,6 +304,12 @@ def logprob_of_action(model,prompt_ids:list[int],choice_ids:list[int],
     ids=torch.tensor([prompt_ids],device=model.device,dtype=torch.long)
     logits=model(input_ids=ids).logits[0,-1,:].float()
     subset=logits[torch.tensor(choice_ids,device=logits.device)]
+    if logit_biases is not None:
+        if (len(logit_biases)!=len(choice_ids) or
+            not all(isinstance(x,(int,float)) and math.isfinite(x) and abs(x)<=4
+                    for x in logit_biases)):
+            raise ValueError("invalid action prior shape or nonfinite logits")
+        subset=subset+torch.tensor(logit_biases,device=logits.device,dtype=subset.dtype)
     return torch.log_softmax(subset,dim=-1)[picked]
 
 
@@ -331,6 +348,8 @@ class FiniteActionPolicy:
         tokids=choice_token_ids(self.tokenizer,len(candidates))
         prompt=action_prompt(self.tokenizer,question,observations,remaining,
                              candidates,cfg=self.cfg)
+        prior=(action_logit_biases(question,observations,candidates)
+               if self.cfg.answer_proposer=="v4" else None)
         self.model.eval()  # disable LoRA dropout for exact pre-update re-scoring
         device=self.model.device
         self.model_calls+=1
@@ -339,6 +358,8 @@ class FiniteActionPolicy:
             ids=torch.tensor([prompt],device=device,dtype=torch.long)
             logits=self.model(input_ids=ids).logits[0,-1,:].float()
             masked_logits=logits[torch.tensor(tokids,device=device)]
+            if prior is not None:
+                masked_logits=masked_logits+torch.tensor(prior,device=device,dtype=masked_logits.dtype)
             categorical_lp=torch.log_softmax(masked_logits,dim=0)
             prob=torch.exp(categorical_lp)
             # Never let random draws from *previous questions* alter this
@@ -369,6 +390,7 @@ class FiniteActionPolicy:
             "legal_actions":[x.to_dict() for x in candidates],
             "choice_prob":float(prob[index]),
             "sampled_logprob":float(categorical_lp[index]),
+            "action_logit_biases":prior,
             "tool_observation_targets":0,
             "action_token_targets":1,
         })
