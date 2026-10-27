@@ -33,6 +33,7 @@ from sidra.io import load_dataset,save_jsonl
 from sidra.train_reward import score_train_rollout,group_normalized_advantages
 from sidra.step_credit import assign_step_evidence_credit
 from sidra.finish_preference import annotate_train_finish_preferences,finish_positive_nll
+from sidra.read_preference import annotate_train_read_preferences,read_positive_nll
 
 
 def _sha256(path:Path)->str:
@@ -123,12 +124,15 @@ def stage_group_advantages(episodes:list[dict])->None:
 def finite_action_update(model,episodes:list[dict],optimizer, *,
                          clip:float=0.2,
                          credit_mode:str="episode_total",
-                         finish_aux_weight:float=0.0)->dict:
+                         finish_aux_weight:float=0.0,
+                         read_aux_weight:float=0.0)->dict:
     """One gradient update from fresh trajectories, no replay after update."""
     import torch
     if not 0<clip<1:raise ValueError("invalid PPO clip")
     if not math.isfinite(finish_aux_weight) or not 0<=finish_aux_weight<=1:
         raise ValueError("FINISH auxiliary weight must be between 0 and 1")
+    if not math.isfinite(read_aux_weight) or not 0<=read_aux_weight<=1:
+        raise ValueError("READ auxiliary weight must be between 0 and 1")
     if credit_mode not in {"episode_total","stage_credit_v1","step_evidence_delta_v2"}:
         raise ValueError("unknown TRAIN credit mode")
     active=[]
@@ -179,6 +183,14 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
                     finish_samples.append(a)
         if not finish_samples:
             raise RuntimeError("no verified TRAIN FINISH preference states in batch")
+    read_samples=[]
+    if read_aux_weight>0:
+        for ep in episodes:
+            for a in ep["action_samples"]:
+                if "train_only_read_positive_indices" in a:
+                    read_samples.append(a)
+        if not read_samples:
+            raise RuntimeError("no authentic TRAIN supporting-READ preference states in batch")
     model.eval()
     # Check actual selected-action probability was computed using the exact
     # pre-update parameter distribution, not off-policy guided decoding.
@@ -186,7 +198,7 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
     with torch.no_grad():
         # Every sampled action must have come from THIS exact pre-update policy.
         # Checking only the first few would silently admit off-policy tails.
-        for a in [x for _,x in active]+finish_samples:
+        for a in [x for _,x in active]+finish_samples+read_samples:
             now=float(logprob_of_action(
                 model,a["prompt_ids"],a["legal_choice_token_ids"],
                 a["selected_index"],logit_biases=a.get("action_logit_biases")).detach())
@@ -222,6 +234,15 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
             raise FloatingPointError("invalid verified TRAIN FINISH preference loss")
         (finish_aux_weight*preference_loss/len(finish_samples)).backward()
         aux_losses.append(float(preference_loss.detach()))
+    read_losses=[]
+    # Offline original TRAIN support IDs label READs only after real sampled runs.
+    # This is supervised imitation, not the group-relative policy gradient.
+    for a in read_samples:
+        read_loss=read_positive_nll(model,a)
+        if not torch.isfinite(read_loss):
+            raise FloatingPointError("invalid TRAIN READ preference loss")
+        (read_aux_weight*read_loss/len(read_samples)).backward()
+        read_losses.append(float(read_loss.detach()))
     grad_norm=float(torch.nn.utils.clip_grad_norm_(params,1.0))
     if not math.isfinite(grad_norm) or grad_norm<=0:
         raise RuntimeError("zero or nonfinite masked-policy gradient")
@@ -239,13 +260,18 @@ def finite_action_update(model,episodes:list[dict],optimizer, *,
         "loss_mean":sum(losses)/len(losses),
         "credit_mode":credit_mode,
         "finish_aux_weight":finish_aux_weight,
+        "read_aux_weight":read_aux_weight,
+        "read_supervised_states":len(read_samples),
+        "read_supervised_mean_NLL":(
+            sum(read_losses)/len(read_losses) if read_losses else None),
+        "read_supervised_source":"TRAIN only, missing original support in real legal READs",
         "finish_supervised_states":len(finish_samples),
         "finish_supervised_mean_NLL":(
             sum(aux_losses)/len(aux_losses) if aux_losses else None),
         "finish_supervised_source":"TRAIN only, action in REAL visited catalog",
         "objective_classification":(
-            "HYBRID_ONPOLICY_GRPO_PLUS_TRAIN_GOLD_FINISH_SUPERVISION"
-            if finish_aux_weight else "PURE_ONPOLICY_GROUP_RELATIVE"),
+            "HYBRID_ONPOLICY_GRPO_PLUS_TRAIN_GOLD_SUPERVISION"
+            if (finish_aux_weight or read_aux_weight) else "PURE_ONPOLICY_GROUP_RELATIVE"),
     }
 
 
@@ -255,7 +281,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           learning_rate:float,answer_proposer:str="legacy",
           curriculum_teacher:Path|None=None,
           credit_mode:str="episode_total",
-          finish_aux_weight:float=0.0)->dict:
+          finish_aux_weight:float=0.0,
+          read_aux_weight:float=0.0)->dict:
     if out.exists():raise FileExistsError(out)
     if min(groups,generations,updates,max_steps,max_tool_calls)<1:
         raise ValueError("invalid experiment limits")
@@ -264,6 +291,8 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         raise ValueError("unknown TRAIN credit mode")
     if not math.isfinite(finish_aux_weight) or not 0<=finish_aux_weight<=1:
         raise ValueError("invalid TRAIN-supervised FINISH preference weight")
+    if not math.isfinite(read_aux_weight) or not 0<=read_aux_weight<=1:
+        raise ValueError("invalid TRAIN-supervised READ preference weight")
     import torch,transformers,peft
     docs,questions=load_dataset(data)
     dev=json.loads(dev_manifest.read_text())
@@ -326,6 +355,7 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         varying=0
         step_credit_reports=[]
         finish_pref_audits=[]
+        read_pref_audits=[]
         for i,q in enumerate(batch):
             versions=[]
             for g in range(generations):
@@ -353,6 +383,9 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
             if finish_aux_weight>0:
                 finish_pref_audits.append(
                     annotate_train_finish_preferences(versions,q))
+            if read_aux_weight>0:
+                read_pref_audits.append(
+                    annotate_train_read_preferences(versions,q))
             if credit_mode=="stage_credit_v1":
                 stage_group_advantages(versions)
             if credit_mode=="step_evidence_delta_v2":
@@ -365,7 +398,19 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                   "elapsed",round(time.monotonic()-started,1),flush=True)
         report=finite_action_update(
             model,trajectories,optimizer,credit_mode=credit_mode,
-            finish_aux_weight=finish_aux_weight)
+            finish_aux_weight=finish_aux_weight,
+            read_aux_weight=read_aux_weight)
+        if read_aux_weight>0:
+            report["read_supervision_audit"]={
+                "eligible_real_read_states":sum(
+                    a.get("eligible_real_read_states",0) for a in read_pref_audits),
+                "ignored_offered_original_support_reads":sum(
+                    a.get("student_ignored_offered_support_read",0)
+                    for a in read_pref_audits),
+                "gold_visible_to_policy":False,
+                "created_legal_actions":False,
+                "source":"posthoc original TRAIN support labels; supervised auxiliary",
+            }
         if finish_aux_weight>0:
             report["finish_supervision_audit"]={
                 "eligible_real_decision_states":sum(
@@ -433,7 +478,10 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         "train_only_curriculum":curriculum_audit,
         "credit_mode":credit_mode,
         "finish_aux_weight":finish_aux_weight,
+        "read_aux_weight":read_aux_weight,
         "finish_supervision_is_not_GRPO":bool(finish_aux_weight),
+        "read_supervision_is_not_GRPO":bool(read_aux_weight),
+        "any_aux_supervision_is_not_pure_GRPO":bool(finish_aux_weight or read_aux_weight),
         "selected_training_ids":[q.question_id for q in selected],
         "updates":results,
         "max_steps":max_steps,"max_tool_calls":max_tool_calls,
@@ -525,6 +573,10 @@ def main():
                    help="OPT-IN original TRAIN-gold supervised FINISH "
                         "action mass on real visited states; hybrid, "
                         "NOT pure on-policy GRPO reward.")
+    t.add_argument("--read-aux-weight",type=float,default=0.0,
+                   help="OPT-IN original TRAIN-support supervised READ mass "
+                        "on already exposed legal actions in real visited states; "
+                        "hybrid supervision, NOT pure GRPO reward.")
     t.add_argument("--credit-mode",choices=["episode_total","stage_credit_v1",
                                             "step_evidence_delta_v2"],
                    default="episode_total",
@@ -545,7 +597,8 @@ def main():
               updates=args.updates,learning_rate=args.learning_rate,
               curriculum_teacher=args.curriculum_teacher,
               credit_mode=args.credit_mode,
-              finish_aux_weight=args.finish_aux_weight)
+              finish_aux_weight=args.finish_aux_weight,
+              read_aux_weight=args.read_aux_weight)
     else:
         print(json.dumps(run_eval(
             **common,limit=args.limit,split=args.split,
