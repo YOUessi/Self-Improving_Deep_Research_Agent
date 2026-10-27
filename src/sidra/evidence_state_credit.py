@@ -32,7 +32,7 @@ def assign_evidence_state_credit(
     state_delta_weight:float=0.25,
     state_version:str="v1",
 )->dict:
-    if state_version not in {"v1","v2"}:
+    if state_version not in {"v1","v2","v3"}:
         raise ValueError("unsupported observable evidence state version")
     if question.split!="train":
         raise ValueError("STATE reward with TRAIN gold refuses DEV/TEST")
@@ -45,7 +45,8 @@ def assign_evidence_state_credit(
     potential_stats={
         kind:{"actions":0,"nonzero_state_delta":0,
               "observed_progress_raw_total":0.0,"original_train_gold_raw_total":0.0,
-              "changed_advantages":0}
+              "changed_advantages":0,"credited_state_delta_total":0.0,
+              "suppressed_state_delta_total":0.0}
         for kind in STAGES
     }
     for ep in episodes:
@@ -61,15 +62,25 @@ def assign_evidence_state_credit(
                                          version=state_version)
             delta=max(0.,after.potential-before.potential) if kind!="finish" else 0.0
             train_gold=float(sample["step_credit_raw"])
-            # Keep labelled ground-truth support delta stronger than the
-            # imperfect lexical evidence proxy (even on distractors).
-            score=((1-state_delta_weight)*train_gold+
-                   state_delta_weight*delta if kind!="finish" else train_gold)
+            # V3 reward is JOINT: observable graph delta is credited only
+            # when the actual TRAIN support frontier also advanced. A title
+            # coincidence from a distractor can NEVER be a reward by itself.
+            # This original gold label is inspected AFTER real tool execution.
+            credited_delta=(delta if state_version!="v3" or train_gold>0 else 0.0)
+            if state_version=="v3" and kind=="finish":
+                verified=float(ep["train_reward"]["strict_outcome"])
+                correct=float(ep["train_reward"]["answer_correct"])
+                score=0.2*correct+0.8*verified
+            else:
+                score=((1-state_delta_weight)*train_gold+
+                       state_delta_weight*credited_delta
+                       if kind!="finish" else train_gold)
             if not math.isfinite(score):
                 raise ValueError("nonfinite TRAIN evidence state credit")
             sample["evidence_state_before"]=before.public_summary()
             sample["evidence_state_after"]=after.public_summary()
             sample["evidence_state_delta_raw"]=round(delta,6)
+            sample["evidence_state_delta_credited_raw"]=round(credited_delta,6)
             sample["step_state_train_reward_raw"]=round(score,6)
             stage=(kind,int(sample["step_credit_ordinal"]))
             groups[stage].append((sample,score))
@@ -77,6 +88,8 @@ def assign_evidence_state_credit(
             stats["actions"]+=1
             stats["nonzero_state_delta"]+=int(delta>1e-8)
             stats["observed_progress_raw_total"]+=delta
+            stats["credited_state_delta_total"]+=credited_delta
+            stats["suppressed_state_delta_total"]+=delta-credited_delta
             stats["original_train_gold_raw_total"]+=train_gold
     total_nonzero=0
     for (kind,ordinal),rows in sorted(groups.items()):
@@ -101,5 +114,8 @@ def assign_evidence_state_credit(
         "tool_observation_label_tokens":0,
         "by_kind":potential_stats,
         "original_gold_step_credit":base,
-        "science_limit":"Heuristic state progress may reward irrelevant reads; exact answer/evidence outcome remains separately checked.",
+        "science_limit":("V3 state delta is TRAIN-label gated AFTER execution; "
+                         "at inference the link still proves only title co-mention, "
+                         "not semantic entailment or generalization. "
+                         "V1/V2 ungated behavior is unchanged."),
     }

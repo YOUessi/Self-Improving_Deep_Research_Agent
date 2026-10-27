@@ -80,6 +80,7 @@ class EvidenceState:
     version:str="v1"
     anchored_read_ids:tuple[str,...]=()
     anchored_linked_pairs:tuple[tuple[str,str],...]=()
+    pending_linked_hit_ids:tuple[str,...]=()
 
     @property
     def read_ids(self)->frozenset[str]:
@@ -92,6 +93,13 @@ class EvidenceState:
 
     @property
     def evidence_gap(self)->str:
+        if self.version=="v3":
+            if self.anchored_linked_pairs:return "linked_sources_answer_check"
+            if self.pending_linked_hit_ids:return "need_linked_read"
+            if not self.exposed_hits:return "need_search"
+            if not self.anchored_read_ids:
+                return "need_first_read" if self.available_unread else "need_anchor_search"
+            return "need_second_search"
         if not self.exposed_hits:return "need_search"
         if not self.read_sources:return "need_first_read"
         if len(self.read_sources)==1:
@@ -107,6 +115,8 @@ class EvidenceState:
             "state_version":self.version,
             "question_anchored_read_sources":len(self.anchored_read_ids),
             "question_anchored_bridge_pairs":len(self.anchored_linked_pairs),
+            "pending_linked_read_ids":list(self.pending_linked_hit_ids),
+            "linked_chain_ready":bool(self.anchored_linked_pairs),
             "distinct_read_sources":len(self.read_sources),
             "unread_search_hits":len(self.available_unread),
             "cross_document_title_links":len(self.linked_pairs),
@@ -128,6 +138,27 @@ class EvidenceState:
             for sentence in _sentences_with_answer(d.text,answer)),default=0.)
         return len(matched),round(value,6)
 
+    def chain_candidate_support(self,answer:str,
+                                citations:Sequence[str])->tuple[int,float]:
+        """Source-bound LEXICAL support within a cited, actually READ chain.
+
+        This is only a candidate-ranking signal, NOT an entailment verifier.
+        Distractor answer strings elsewhere in the READ history score ZERO.
+        """
+        if not answer.strip():return 0,0.0
+        cited=set(citations)&self.read_ids
+        eligible={did for pair in self.anchored_linked_pairs
+                  if set(pair)<=cited for did in pair}
+        if not eligible:return 0,0.0
+        if answer.casefold() in _POLAR:return 1,0.0
+        matched=[d for d in self.read_sources
+                 if d.doc_id in eligible and _phrase_in(answer,d.text)]
+        qterms=_terms(self.question)
+        overlap=max((_question_sentence_overlap(qterms,s)
+                    for d in matched
+                    for s in _sentences_with_answer(d.text,answer)),default=0.0)
+        return len(matched),round(overlap,6)
+
     def action_biases(self,actions:Sequence[Action])->list[float]:
         """Gold-blind state-conditioned logits for *all* allowed action kinds.
 
@@ -135,6 +166,8 @@ class EvidenceState:
         differentiable re-scoring. No action is granted an invalid DocID.
         Biases are capped; uncertainty never silently forces a wrong answer.
         """
+        if self.version=="v3":
+            return self._chain_v3_action_biases(actions)
         if self.version=="v2":
             return self._chain_action_biases(actions)
         qterms=_terms(self.question)
@@ -237,6 +270,50 @@ class EvidenceState:
             result.append(round(max(-1.95,min(1.95,score)),6))
         return result
 
+    def _chain_v3_action_biases(self,actions:Sequence[Action])->list[float]:
+        """One ledger controls next evidence READ, SEARCH and grounded FINISH.
+
+        Strongly favor observable chain closure but never claim entailment.
+        Every action retains the identical finite softmax at sample/optimizer.
+        """
+        hits={did:title for did,title,_ in self.exposed_hits}
+        queried={_normalized(q) for q in self.searched_queries}
+        pending=set(self.pending_linked_hit_ids)
+        result=[]
+        for a in actions:
+            if a.kind=="read":
+                if a.doc_id not in hits or a.doc_id in self.read_ids:
+                    raise ValueError("READ action is not an exposed unread document")
+                score=(1.85 if a.doc_id in pending else
+                       0.80 if _is_question_anchor(hits[a.doc_id],self.question)
+                       else -0.55)
+            elif a.kind=="search":
+                if _normalized(a.query) in queried:
+                    raise ValueError("duplicate SEARCH query")
+                bridge=bool(self.next_bridge_query and
+                            _normalized(a.query)==_normalized(self.next_bridge_query))
+                score=(1.20 if bridge and not pending else
+                       0.25 if not self.anchored_read_ids else -0.40)
+                if pending:score-=0.90  # READ visible bridge; do not waste SEARCH.
+                if self.anchored_linked_pairs:score-=0.60
+            elif a.kind=="finish":
+                if not a.answer:
+                    score=-0.35 if not self.anchored_linked_pairs else -0.10
+                else:
+                    if len(self.read_sources)<2 or not set(a.citations)<=self.read_ids:
+                        raise ValueError("FINISH without real two-source READs")
+                    count,cooccur=self.chain_candidate_support(a.answer,a.citations)
+                    score=(1.25+0.35*cooccur+0.20*int(count>1)
+                           if count else -1.50)
+                    # A yes/no decision is still uncertain: linking sources
+                    # does not establish the polarity of a relation.
+                    if a.answer.casefold() in _POLAR:
+                        score=0.15 if count else -1.20
+            else:
+                raise ValueError("invalid candidate action")
+            result.append(round(max(-1.95,min(1.95,score)),6))
+        return result
+
 
 def _sentences_with_answer(text:str,answer:str)->list[str]:
     import re
@@ -248,8 +325,8 @@ def derive_evidence_state(question:str,observations:list[dict], *,
                           version:str="v1")->EvidenceState:
     if not question.strip():
         raise ValueError("nonempty question required")
-    if version not in {"v1","v2"}:
-        raise ValueError("evidence state version must be v1 or v2")
+    if version not in {"v1","v2","v3"}:
+        raise ValueError("evidence state version must be v1, v2 or v3")
     queries:list[str]=[]
     hits:dict[str,tuple[str,str]]={}
     reads:dict[str,EvidenceRead]={}
@@ -313,7 +390,7 @@ def derive_evidence_state(question:str,observations:list[dict], *,
     potential=max(0.,min(1.,potential))
     anchor_ids=tuple(d.doc_id for d in source_list
                      if _is_question_anchor(d.title,question))
-    if version=="v2":
+    if version in {"v2","v3"}:
         # A true candidate evidence CHAIN needs an original question anchor
         # and an observed title reference to a distinct actually READ doc.
         # Mere additional READ count and broad bag-of-words coverage no
@@ -338,6 +415,43 @@ def derive_evidence_state(question:str,observations:list[dict], *,
             gap=None
     else:
         anchored_pairs=()
+    pending_hits=()
+    if version=="v3":
+        # A frontier target is grounded in BOTH an exposed hit title and
+        # text actually READ in a question-anchored first source. No oracle.
+        anchor_reads=[d for d in source_list if d.doc_id in anchor_ids]
+        pending_hits=tuple(
+            did for did,title,_snippet in frontier
+            if did not in reads and any(
+                _strong_title_link(title,anchor.text) for anchor in anchor_reads))
+        # V2 queried from the last READ (possibly a distractor). V3 searches
+        # only from an actual question-anchored source and first READs any
+        # directly visible cross-reference before searching again.
+        gap=None
+        if anchor_reads and not pending_hits and not anchored_pairs:
+            searched={_normalized(q) for q in queries}
+            exposed_titles={_normalized(title) for _,title,_ in frontier}
+            for anchor in reversed(anchor_reads):
+                proposals=bridge_candidates(
+                    question,anchor.title,anchor.text[:2800],
+                    prior_queries=set(queries))
+                for proposal in proposals:
+                    # Existing entity parser may swallow a period and join
+                    # adjacent sentences into one bogus SEARCH query.
+                    import re
+                    candidate=re.split(r"(?<=[.!?])[ ]+",proposal.query,maxsplit=1)[0]
+                    candidate=candidate.strip(" ,.;:!?")
+                    q=_normalized(candidate)
+                    if (proposal.source=="read_entity" and q and
+                        q not in searched and q not in exposed_titles):
+                        gap=candidate
+                        break
+                if gap:break
+        potential=(0.10*int(exposed_anchor)
+                   +0.25*int(bool(anchor_ids))
+                   +0.20*int(bool(pending_hits))
+                   +0.45*int(bool(anchored_pairs)))
+        potential=max(0.,min(1.,potential))
     return EvidenceState(
         question=question,searched_queries=tuple(queries),
         exposed_hits=frontier,read_sources=source_list,
@@ -348,6 +462,7 @@ def derive_evidence_state(question:str,observations:list[dict], *,
         version=version,
         anchored_read_ids=anchor_ids,
         anchored_linked_pairs=anchored_pairs,
+        pending_linked_hit_ids=pending_hits,
     )
 
 
