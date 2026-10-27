@@ -104,7 +104,9 @@ def solver_request(question:str,reads:list[dict],*,model:str,
     }
 
 
-def get_solver_output(endpoint:str,body:dict, *,timeout:int=75)->tuple[dict,dict,float]:
+def get_solver_output(endpoint:str,body:dict, *,timeout:int=75,
+                      expected_keys:frozenset[str]=frozenset({"answer","citations"})
+                      )->tuple[dict,dict,float]:
     started=time.monotonic()
     request=Request(
         endpoint,method="POST",
@@ -116,12 +118,14 @@ def get_solver_output(endpoint:str,body:dict, *,timeout:int=75)->tuple[dict,dict
     elapsed=time.monotonic()-started
     msg=packet["choices"][0]["message"]["content"]
     obj=json.loads(msg)
-    if not isinstance(obj,dict) or set(obj)!={"answer","citations"}:
-        raise ValueError("Unexpected solver schema")
-    if (not isinstance(obj["answer"],str)
-        or not isinstance(obj["citations"],list)
-        or not all(isinstance(c,str) for c in obj["citations"])):
-        raise ValueError("Invalid solver answer/citations types")
+    if not isinstance(obj,dict) or set(obj)!=expected_keys:
+        raise ValueError("Unexpected solver schema keys: " +
+                         repr(sorted(obj) if isinstance(obj,dict) else type(obj).__name__))
+    if expected_keys==frozenset({"answer","citations"}):
+        if (not isinstance(obj["answer"],str)
+            or not isinstance(obj["citations"],list)
+            or not all(isinstance(c,str) for c in obj["citations"])):
+            raise ValueError("Invalid solver answer/citations types")
     usage=packet.get("usage") or {}
     return obj,usage,elapsed
 
