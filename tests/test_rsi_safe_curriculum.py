@@ -39,7 +39,7 @@ def fixture(tmp_path,*,invalid_reward:bool=False,bad_dev_id:bool=False,
                      f"settlement was described in document {i:03d}?",
             gold_answer="Harbor Station",
             supporting_doc_ids=("a",),
-            split="dev" if mixed_train and i==0 else "train"))
+            split="dev" if mixed_train and i==1 else "train"))
     def dump(name,rows):
         (d/name).write_text("\n".join(json.dumps(row.to_dict() if hasattr(row,"to_dict")
                                  else row.__dict__,ensure_ascii=False)
