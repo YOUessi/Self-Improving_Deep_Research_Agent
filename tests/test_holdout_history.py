@@ -150,3 +150,27 @@ def test_frozen_packet_tampering_blocks_evaluation(tmp_path,tamper):
         man.write_text(json.dumps(obj))
     with pytest.raises(ValueError):
         read_registry_verified(p,{f"q{i}" for i in range(1,10)})
+
+
+def test_refreeze_must_exclude_every_case_from_old_cohort_even_if_not_trained(
+    tmp_path, monkeypatch
+):
+    from sidra.holdout_history import make_refreeze
+    from sidra import blind_adjudication
+    sources=build_inputs(tmp_path)
+    old=frozen_packet(tmp_path)
+    def validate_exposed(**kwargs):
+        derived=kwargs["prior_train_action_files"][0]
+        qids={json.loads(l)["question_id"]
+              for l in derived.read_text().splitlines()}
+        # Old q8 was not used by any trainer: it still cannot be recycled.
+        assert "q8" in qids
+        assert "q1" in qids
+        assert set(f"q{i}" for i in range(1,8)) <= qids
+        raise RuntimeError("intentional stub, no output packet")
+    monkeypatch.setattr(blind_adjudication,"freeze_blind_packet",validate_exposed)
+    with pytest.raises(RuntimeError,match="intentional stub"):
+        make_refreeze(
+            old=old,valid_train_ids={f"q{i}" for i in range(1,10)},
+            inputs=sources,dataset=tmp_path,original_train=tmp_path/"none",
+            e026_rows=tmp_path/"none_e026",out=tmp_path/"new_packet")
