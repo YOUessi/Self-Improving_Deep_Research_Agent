@@ -1,0 +1,753 @@
+{
+  "version": "m7-e026-v1",
+  "annotation_status": "researcher_curated_not_independent_human_adjudication",
+  "description": "Controlled claims on exact HotpotQA original TRAIN labelled supporting sentences. No gold labels or complete premise are in this fixture. Neutral includes evidence removal or missing explicitly stated bridge, and the mismatched 2017 FA Community Shield vs FA Cup pair. Expected labels are editorial, NOT independently human adjudicated truth.",
+  "cases": [
+    {
+      "case_id": "genoa-bridge_entailment",
+      "question_id": "5ab681f65542995eadef0018",
+      "fact_ids": [
+        [
+          "Duchy of Genoa",
+          0
+        ],
+        [
+          "Congress of Vienna",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The Congress of Vienna, which transferred the former Republic of Genoa's territories to Sardinia, was chaired by Klemens von Metternich.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Duchy fact names meeting; Congress fact directly names chair."
+    },
+    {
+      "case_id": "genoa-explicit_negation",
+      "question_id": "5ab681f65542995eadef0018",
+      "fact_ids": [
+        [
+          "Duchy of Genoa",
+          0
+        ],
+        [
+          "Congress of Vienna",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The Congress of Vienna was not chaired by Klemens von Metternich.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Congress fact explicitly says it was chaired by Metternich."
+    },
+    {
+      "case_id": "genoa-missing_bridge_source",
+      "question_id": "5ab681f65542995eadef0018",
+      "fact_ids": [
+        [
+          "Duchy of Genoa",
+          0
+        ],
+        [
+          "Congress of Vienna",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Congress of Vienna",
+          0
+        ]
+      ],
+      "hypothesis": "The Congress of Vienna, which transferred the former Republic of Genoa's territories to Sardinia, was chaired by Klemens von Metternich.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Duchy fact mentions Congress but gives no chair."
+    },
+    {
+      "case_id": "crisps-bridge_entailment",
+      "question_id": "5ab5ae8d5542992aa134a383",
+      "fact_ids": [
+        [
+          "Rock 'n' Roller Crisps",
+          0
+        ],
+        [
+          "Golden Wonder",
+          2
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Rock'n Rollers were made by Golden Wonder, which has been a wholly owned subsidiary of Tayto since 2006.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Maker is Golden Wonder; the Golden Wonder title grounds its subsidiary sentence."
+    },
+    {
+      "case_id": "crisps-explicit_negation",
+      "question_id": "5ab5ae8d5542992aa134a383",
+      "fact_ids": [
+        [
+          "Rock 'n' Roller Crisps",
+          0
+        ],
+        [
+          "Golden Wonder",
+          2
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Golden Wonder has not been a wholly owned subsidiary of Tayto since 2006.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Golden Wonder sentence explicitly states wholly owned since 2006."
+    },
+    {
+      "case_id": "crisps-missing_bridge_source",
+      "question_id": "5ab5ae8d5542992aa134a383",
+      "fact_ids": [
+        [
+          "Rock 'n' Roller Crisps",
+          0
+        ],
+        [
+          "Golden Wonder",
+          2
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Golden Wonder",
+          2
+        ]
+      ],
+      "hypothesis": "Rock'n Rollers were made by Golden Wonder, which has been a wholly owned subsidiary of Tayto since 2006.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Maker-only sentence does not establish Tayto subsidiary relation."
+    },
+    {
+      "case_id": "leiter-bridge_entailment",
+      "question_id": "5ab5b94d5542997d4ad1f1be",
+      "fact_ids": [
+        [
+          "David Hedison",
+          4
+        ],
+        [
+          "Felix Leiter",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Ian Fleming created Felix Leiter, the CIA operative played by David Hedison in Live and Let Die.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Hedison played Felix Leiter in the film; Felix Leiter was created by Ian Fleming."
+    },
+    {
+      "case_id": "leiter-explicit_negation",
+      "question_id": "5ab5b94d5542997d4ad1f1be",
+      "fact_ids": [
+        [
+          "David Hedison",
+          4
+        ],
+        [
+          "Felix Leiter",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Felix Leiter was not created by Ian Fleming.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Felix Leiter passage directly says created by Ian Fleming."
+    },
+    {
+      "case_id": "leiter-missing_bridge_source",
+      "question_id": "5ab5b94d5542997d4ad1f1be",
+      "fact_ids": [
+        [
+          "David Hedison",
+          4
+        ],
+        [
+          "Felix Leiter",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Felix Leiter",
+          0
+        ]
+      ],
+      "hypothesis": "Ian Fleming created Felix Leiter, the CIA operative played by David Hedison in Live and Let Die.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Hedison passage identifies actor and character, not creator."
+    },
+    {
+      "case_id": "mall-bridge_entailment",
+      "question_id": "5a762eb05542994ccc918704",
+      "fact_ids": [
+        [
+          "Oakwood Mall",
+          3
+        ],
+        [
+          "Dayton's",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The original fifth anchor at Oakwood Mall was Dayton's, a department store chain founded in 1902.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Mall fact names original anchor Dayton's; its article states founded 1902."
+    },
+    {
+      "case_id": "mall-explicit_negation",
+      "question_id": "5a762eb05542994ccc918704",
+      "fact_ids": [
+        [
+          "Oakwood Mall",
+          3
+        ],
+        [
+          "Dayton's",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Dayton's was not founded in 1902.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Dayton's source says founded in 1902."
+    },
+    {
+      "case_id": "mall-missing_bridge_source",
+      "question_id": "5a762eb05542994ccc918704",
+      "fact_ids": [
+        [
+          "Oakwood Mall",
+          3
+        ],
+        [
+          "Dayton's",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Dayton's",
+          0
+        ]
+      ],
+      "hypothesis": "The original fifth anchor at Oakwood Mall was Dayton's, a department store chain founded in 1902.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Mall fact does not specify Dayton's founding year."
+    },
+    {
+      "case_id": "dynamo-bridge_entailment",
+      "question_id": "5a7b46aa55429931da12ca4e",
+      "fact_ids": [
+        [
+          "Eric Kissinger",
+          0
+        ],
+        [
+          "Dayton Dynamo (2016–)",
+          2
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Eric Kissinger plays for Dayton Dynamo, a club in the NPSL's Midwest Region.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Kissinger plays Dayton Dynamo in NPSL; club's entry states Midwest Region."
+    },
+    {
+      "case_id": "dynamo-explicit_negation",
+      "question_id": "5a7b46aa55429931da12ca4e",
+      "fact_ids": [
+        [
+          "Eric Kissinger",
+          0
+        ],
+        [
+          "Dayton Dynamo (2016–)",
+          2
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Dayton Dynamo does not play in the NPSL's Midwest Region.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Club fact explicitly states it plays in the Midwest Region."
+    },
+    {
+      "case_id": "dynamo-missing_bridge_source",
+      "question_id": "5a7b46aa55429931da12ca4e",
+      "fact_ids": [
+        [
+          "Eric Kissinger",
+          0
+        ],
+        [
+          "Dayton Dynamo (2016–)",
+          2
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Dayton Dynamo (2016–)",
+          2
+        ]
+      ],
+      "hypothesis": "Eric Kissinger plays for Dayton Dynamo, a club in the NPSL's Midwest Region.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Player fact alone names club and league, not region."
+    },
+    {
+      "case_id": "duggar-direct_entailment",
+      "question_id": "5abb6fc85542992ccd8e7f42",
+      "fact_ids": [
+        [
+          "Jill Duggar Dillard",
+          0
+        ],
+        [
+          "19 Kids and Counting",
+          1
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The parents featured on 19 Kids and Counting are Jim Bob and Michelle Duggar.",
+      "expected_label": "entailment",
+      "phenomenon": "direct_entailment",
+      "rationale": "The television-show passage explicitly calls Jim Bob and Michelle Duggar parents."
+    },
+    {
+      "case_id": "duggar-explicit_negation",
+      "question_id": "5abb6fc85542992ccd8e7f42",
+      "fact_ids": [
+        [
+          "Jill Duggar Dillard",
+          0
+        ],
+        [
+          "19 Kids and Counting",
+          1
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The show 19 Kids and Counting does not feature Jim Bob and Michelle Duggar as parents.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "The television-show passage directly lists the two parents."
+    },
+    {
+      "case_id": "duggar-unsupported_bridge",
+      "question_id": "5abb6fc85542992ccd8e7f42",
+      "fact_ids": [
+        [
+          "Jill Duggar Dillard",
+          0
+        ],
+        [
+          "19 Kids and Counting",
+          1
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Jill Duggar Dillard appears on the television show 19 Kids and Counting.",
+      "expected_label": "neutral",
+      "phenomenon": "unsupported_bridge",
+      "rationale": "Biography only states Jill is a television personality; show fact mentions the Duggar family but does not explicitly establish Jill's appearance."
+    },
+    {
+      "case_id": "macventure-bridge_entailment",
+      "question_id": "5ac111b6554299294b219088",
+      "fact_ids": [
+        [
+          "Darin Adler",
+          1
+        ],
+        [
+          "Déjà Vu (video game)",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Darin Adler developed the MacVenture engine, which ran the point-and-click adventure Déjà Vu.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Adler fact names engine and Déjà Vu; Déjà Vu fact describes point-and-click genre."
+    },
+    {
+      "case_id": "macventure-explicit_negation",
+      "question_id": "5ac111b6554299294b219088",
+      "fact_ids": [
+        [
+          "Darin Adler",
+          1
+        ],
+        [
+          "Déjà Vu (video game)",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The MacVenture game engine did not run Déjà Vu.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Darin Adler passage says MacVenture ran Déjà Vu."
+    },
+    {
+      "case_id": "macventure-missing_bridge_source",
+      "question_id": "5ac111b6554299294b219088",
+      "fact_ids": [
+        [
+          "Darin Adler",
+          1
+        ],
+        [
+          "Déjà Vu (video game)",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Darin Adler",
+          1
+        ]
+      ],
+      "hypothesis": "Darin Adler developed the MacVenture engine, which ran the point-and-click adventure Déjà Vu.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Déjà Vu genre text alone does not identify MacVenture or Adler."
+    },
+    {
+      "case_id": "justmarried-bridge_entailment",
+      "question_id": "5ae0e3cb5542993d6555ec83",
+      "fact_ids": [
+        [
+          "Just Married",
+          0
+        ],
+        [
+          "Shawn Levy",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The director of Just Married, Shawn Levy, was born on July 23, 1968.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Film credits Shawn Levy; his passage provides his exact date of birth."
+    },
+    {
+      "case_id": "justmarried-explicit_negation",
+      "question_id": "5ae0e3cb5542993d6555ec83",
+      "fact_ids": [
+        [
+          "Just Married",
+          0
+        ],
+        [
+          "Shawn Levy",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Shawn Levy was not born on July 23, 1968.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Shawn Levy passage gives July 23 1968 as birth date."
+    },
+    {
+      "case_id": "justmarried-missing_bridge_source",
+      "question_id": "5ae0e3cb5542993d6555ec83",
+      "fact_ids": [
+        [
+          "Just Married",
+          0
+        ],
+        [
+          "Shawn Levy",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Shawn Levy",
+          0
+        ]
+      ],
+      "hypothesis": "The director of Just Married, Shawn Levy, was born on July 23, 1968.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Film fact names director but not his birth date."
+    },
+    {
+      "case_id": "lwo-bridge_entailment",
+      "question_id": "5a8369715542996488c2e440",
+      "fact_ids": [
+        [
+          "The Latino World Order",
+          0
+        ],
+        [
+          "Eddie Guerrero",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The Latino World Order was led by Eddie Guerrero, a wrestler born in 1967.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "LWO fact names leader; Guerrero's passage directly says born 1967."
+    },
+    {
+      "case_id": "lwo-explicit_negation",
+      "question_id": "5a8369715542996488c2e440",
+      "fact_ids": [
+        [
+          "The Latino World Order",
+          0
+        ],
+        [
+          "Eddie Guerrero",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Eddie Guerrero was not born in 1967.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Guerrero's passage gives his October 9 1967 birth date."
+    },
+    {
+      "case_id": "lwo-missing_bridge_source",
+      "question_id": "5a8369715542996488c2e440",
+      "fact_ids": [
+        [
+          "The Latino World Order",
+          0
+        ],
+        [
+          "Eddie Guerrero",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Eddie Guerrero",
+          0
+        ]
+      ],
+      "hypothesis": "The Latino World Order was led by Eddie Guerrero, a wrestler born in 1967.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "LWO fact says leader Guerrero without birth date."
+    },
+    {
+      "case_id": "riot-bridge_entailment",
+      "question_id": "5a7ceb72554299452d57baa2",
+      "fact_ids": [
+        [
+          "Astor Place Theatre",
+          0
+        ],
+        [
+          "Astor Place Theatre",
+          2
+        ],
+        [
+          "Astor Place Riot",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The Astor Place Riot, whose name is shared by the Astor Place Theatre, left at least 25 people dead.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Theatre facts give matching name; riot fact directly gives at least 25 dead."
+    },
+    {
+      "case_id": "riot-explicit_negation",
+      "question_id": "5a7ceb72554299452d57baa2",
+      "fact_ids": [
+        [
+          "Astor Place Theatre",
+          0
+        ],
+        [
+          "Astor Place Theatre",
+          2
+        ],
+        [
+          "Astor Place Riot",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The Astor Place Riot caused no deaths.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Riot fact says it left at least 25 dead."
+    },
+    {
+      "case_id": "riot-missing_bridge_source",
+      "question_id": "5a7ceb72554299452d57baa2",
+      "fact_ids": [
+        [
+          "Astor Place Theatre",
+          0
+        ],
+        [
+          "Astor Place Theatre",
+          2
+        ],
+        [
+          "Astor Place Riot",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Astor Place Riot",
+          0
+        ]
+      ],
+      "hypothesis": "The Astor Place Riot, whose name is shared by the Astor Place Theatre, left at least 25 people dead.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Theatre facts identify the riot but do not say how many died."
+    },
+    {
+      "case_id": "facup-direct_entailment",
+      "question_id": "5a8b4a885542995d1e6f1351",
+      "fact_ids": [
+        [
+          "2017 FA Community Shield",
+          3
+        ],
+        [
+          "FA Cup",
+          1
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The FA Cup is the oldest association football competition in the world.",
+      "expected_label": "entailment",
+      "phenomenon": "direct_entailment",
+      "rationale": "FA Cup passage explicitly states oldest association competition."
+    },
+    {
+      "case_id": "facup-explicit_negation",
+      "question_id": "5a8b4a885542995d1e6f1351",
+      "fact_ids": [
+        [
+          "2017 FA Community Shield",
+          3
+        ],
+        [
+          "FA Cup",
+          1
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "The FA Cup is not the oldest association football competition in the world.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Direct negation of the FA Cup passage."
+    },
+    {
+      "case_id": "facup-unsupported_bridge",
+      "question_id": "5a8b4a885542995d1e6f1351",
+      "fact_ids": [
+        [
+          "2017 FA Community Shield",
+          3
+        ],
+        [
+          "FA Cup",
+          1
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Arsenal won the FA Cup in 2017.",
+      "expected_label": "neutral",
+      "phenomenon": "unsupported_bridge",
+      "rationale": "One passage says Arsenal won 2017 FA Community Shield; the other names FA Cup as oldest. These are different competitions; the supplied sentences do not establish the 2017 FA Cup winner."
+    },
+    {
+      "case_id": "lully-bridge_entailment",
+      "question_id": "5a89de0a554299669944a5eb",
+      "fact_ids": [
+        [
+          "Acis et Galatée",
+          0
+        ],
+        [
+          "Jean-Baptiste Lully",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Acis et Galatée is an opera by the Italian-born French composer Jean-Baptiste Lully.",
+      "expected_label": "entailment",
+      "phenomenon": "bridge_entailment",
+      "rationale": "Opera passage says by Lully; biography calls him an Italian-born French composer."
+    },
+    {
+      "case_id": "lully-explicit_negation",
+      "question_id": "5a89de0a554299669944a5eb",
+      "fact_ids": [
+        [
+          "Acis et Galatée",
+          0
+        ],
+        [
+          "Jean-Baptiste Lully",
+          0
+        ]
+      ],
+      "drop_fact_ids": [],
+      "hypothesis": "Jean-Baptiste Lully was not an Italian-born French composer.",
+      "expected_label": "contradiction",
+      "phenomenon": "explicit_negation",
+      "rationale": "Lully passage says he was an Italian-born French composer."
+    },
+    {
+      "case_id": "lully-missing_bridge_source",
+      "question_id": "5a89de0a554299669944a5eb",
+      "fact_ids": [
+        [
+          "Acis et Galatée",
+          0
+        ],
+        [
+          "Jean-Baptiste Lully",
+          0
+        ]
+      ],
+      "drop_fact_ids": [
+        [
+          "Jean-Baptiste Lully",
+          0
+        ]
+      ],
+      "hypothesis": "Acis et Galatée is an opera by the Italian-born French composer Jean-Baptiste Lully.",
+      "expected_label": "neutral",
+      "phenomenon": "missing_bridge_source",
+      "rationale": "Opera passage mentions Lully but not nationality or composer biography."
+    }
+  ]
+}
