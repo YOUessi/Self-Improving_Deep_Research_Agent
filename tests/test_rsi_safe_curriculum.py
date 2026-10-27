@@ -190,3 +190,15 @@ def test_finalB_filepath_blocked_before_opening(tmp_path):
             source_sha=SOURCE,generations=1,per_generation=2,
             holdout_n=2,config=CFG)
     assert not (tmp_path/"never_created").exists()
+
+
+def test_cli_imports_outside_repo_root_with_src_only_path(tmp_path):
+    """Regression: helper imported a scripts.* module and passed pytest but failed on Tang CLI."""
+    import os,subprocess,sys
+    root=Path(__file__).resolve().parents[1]
+    env={**os.environ,"PYTHONPATH":str(root/"src")}
+    result=subprocess.run(
+        [sys.executable,str(root/"scripts/build_rsi_safe_curriculum.py"),"--help"],
+        cwd=tmp_path,env=env,capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stderr
+    assert "--public-dev-id-manifest" in result.stdout
