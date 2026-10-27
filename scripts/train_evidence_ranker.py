@@ -45,8 +45,8 @@ def training_rows(data:Path,*,seed:int=712):
     questions={"train":[],"internal_val":[]}
     for q in qs:
         candidates=scopes.get(q.scope,[])
-        if len(candidates)<3:
-            raise ValueError("TRAIN question has insufficient scoped passages")
+        if len(candidates)<2:
+            raise ValueError("TRAIN question has fewer than two scoped passages")
         gold=set(q.supporting_doc_ids)
         if not gold or not gold.issubset({d["doc_id"] for d in candidates}):
             raise ValueError("missing labelled TRAIN supporting passage")
