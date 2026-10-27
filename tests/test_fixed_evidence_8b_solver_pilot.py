@@ -59,5 +59,5 @@ def test_counterfactual_refuses_train64_and_sealed_dev_paths(tmp_path):
 
 
 def test_empty_evidence_cannot_get_solver_request():
-    with pytest.raises(ValueError,match="two"):
+    with pytest.raises(ValueError,match=">=2"):
         solver_request("Q",[],model="m")
