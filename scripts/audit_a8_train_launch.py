@@ -19,8 +19,14 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
-from scripts.audit_a8_frozen_integrity import A8, validate_a8_freeze
-from scripts.train_finite_action_grpo import select_train_only
+# Support both `python -m scripts.audit_a8_train_launch` and direct script
+# invocation from the pinned checkout (PYTHONPATH=src).
+if __package__:
+    from scripts.audit_a8_frozen_integrity import A8, validate_a8_freeze
+    from scripts.train_finite_action_grpo import select_train_only
+else:
+    from audit_a8_frozen_integrity import A8, validate_a8_freeze
+    from train_finite_action_grpo import select_train_only
 from sidra.gpu_coordination import find_external_gpu_jobs
 from sidra.schema import Question
 
