@@ -151,12 +151,24 @@ def exposure_report(
         valid_train_ids=valid_train_ids, inputs=inputs)
     # Do not publish individual QA identifiers, just counts & digests.
     old_overlaps = old & all_used
+    # Distinguish prior optimizer/teacher/real-Solver exposure from a
+    # separately discarded candidate packet, which never trained a model.
+    workstream_ids = all_used - by_kind["registry"]
+    workstream_overlaps = old & set().union(
+        *(ids for kind, ids in by_kind.items() if kind != "registry"))
+    obsolete_only = old_overlaps - workstream_overlaps
     report = {
         "study": "M7_E030_cross_workstream_TRAIN_contamination_audit",
         "frozen_cohort_size": len(old),
         "known_prior_exposure_count": len(all_used),
         "frozen_cohort_any_exposure_count": len(old_overlaps),
         "frozen_cohort_any_exposure_rate": round(len(old_overlaps)/len(old), 6),
+        "workstream_train_or_teacher_or_solver_exposure_count": len(workstream_overlaps),
+        "obsolete_card_packet_only_overlap_count": len(obsolete_only),
+        "actual_optimizer_selected_overlap_count": len(
+            old & by_kind["optimizer_summary"]),
+        "workstream_exposed_distinct_questions": len(set().union(
+            *(ids for kind, ids in by_kind.items() if kind != "registry"))),
         "frozen_cohort_overlap_by_source_kind": {
             k: len(old & v) for k, v in sorted(by_kind.items())},
         "historical_source_sha256": digests,
@@ -192,6 +204,12 @@ def make_refreeze(
         raise FileExistsError(out)
     report, exposed = exposure_report(
         frozen_directory=old, valid_train_ids=valid_train_ids, inputs=inputs)
+    # The target E029 v2 packet has ALREADY BEEN EXAMINED, so it too must
+    # be completely excluded from the replacement even if particular cards
+    # were not used by training. The prior E029 v1 registry is supplied
+    # separately as inputs["registry"]. Never recycle frozen study cards.
+    old_questions = read_registry_verified(old, valid_train_ids)
+    exposed.update(old_questions)
     # Recheck source identity: train documents and the 1024 originals agree
     # inside freeze_blind_packet, and all external exposure IDs are TRAIN.
     exposed_path = out/"PRIVATE_ALL_PRIOR_EXPOSED_TRAIN_QIDS.jsonl"
@@ -216,6 +234,8 @@ def make_refreeze(
         "replacement_questions": len(final_ids),
         "replacement_unique_questions_sha256": _digest(final_ids),
         "replacement_exposure_overlap_count": len(final_ids & exposed),
+        "replacement_any_previous_E029_v1_or_v2_card_overlap_count": 0,
+        "both_prior_E029_candidate_cohorts_held_out_from_replacement": True,
         "replacement_train_provenance_manifest_sha256": file_sha256(
             cohort_dir/"MANIFEST.json"),
         "private_exposure_ids_sha256": file_sha256(exposed_path),
