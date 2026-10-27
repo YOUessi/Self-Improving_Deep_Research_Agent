@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from sidra.metrics import normalize_answer
+from sidra.evidence_diagnostics import _present_in_one_document
 from sidra.schema import Action
 
 
@@ -27,8 +27,11 @@ class EvidenceAudit:
             return Audit(False, "missing_or_duplicate_citations")
         if not set(ids).issubset(read):
             return Audit(False, "unread_citations")
-        text = normalize_answer(" ".join(read[i] for i in ids))
-        answer = normalize_answer(candidate.answer)
-        if not answer or answer not in text:
+        # Do not join READ passages before matching. Previous concatenation
+        # could turn "New" in document A + "York" in document B into a
+        # fabricated lexical answer; raw substring can also accept "York"
+        # inside "Yorkshire". This is lexical support only, not entailment.
+        if not any(_present_in_one_document(candidate.answer, read[i])
+                   for i in ids):
             return Audit(False, "answer_not_in_sources")
         return Audit(True, "lexical_only")
