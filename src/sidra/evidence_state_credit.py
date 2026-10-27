@@ -30,7 +30,10 @@ from sidra.train_reward import group_normalized_advantages
 def assign_evidence_state_credit(
     episodes:list[dict],question:Question, *,
     state_delta_weight:float=0.25,
+    state_version:str="v1",
 )->dict:
+    if state_version not in {"v1","v2"}:
+        raise ValueError("unsupported observable evidence state version")
     if question.split!="train":
         raise ValueError("STATE reward with TRAIN gold refuses DEV/TEST")
     if not math.isfinite(state_delta_weight) or not 0<=state_delta_weight<=0.5:
@@ -49,11 +52,13 @@ def assign_evidence_state_credit(
         obs_history=[]
         for sample,step in zip(ep["action_samples"],ep["trace"]["steps"],strict=True):
             kind=step["action"]["kind"]
-            before=derive_evidence_state(question.question,obs_history)
+            before=derive_evidence_state(question.question,obs_history,
+                                          version=state_version)
             obs=step.get("observation")
             if obs is not None:
                 obs_history.append(obs)
-            after=derive_evidence_state(question.question,obs_history)
+            after=derive_evidence_state(question.question,obs_history,
+                                         version=state_version)
             delta=max(0.,after.potential-before.potential) if kind!="finish" else 0.0
             train_gold=float(sample["step_credit_raw"])
             # Keep labelled ground-truth support delta stronger than the
@@ -84,10 +89,11 @@ def assign_evidence_state_credit(
             sample["step_credit_advantage"]=float(value)
             total_nonzero+=int(abs(value)>1e-8)
     return {
-        "mode":"evidence_state_delta_v1",
+        "mode":"evidence_state_delta_"+state_version,
         "train_question_id":question.question_id,
         "sibling_rollouts":len(episodes),
         "state_delta_weight":state_delta_weight,
+        "state_version":state_version,
         "nonzero_optimizer_action_advantages":total_nonzero,
         "gold_source":"original TRAIN only, after real tool execution",
         "observable_state_source":"question + actual SEARCH/READ observations only",
