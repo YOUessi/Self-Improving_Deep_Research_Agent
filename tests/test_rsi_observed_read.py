@@ -47,7 +47,7 @@ def test_no_read_no_second_read_and_no_unused_frontier():
     assert choose_observed_second_read("Some question", o) is None
 
 
-@pytest.mark.parametrize("steps,calls", [(2, 5), (3, 2), (1, 3)])
+@pytest.mark.parametrize("steps,calls", [(2, 5), (3, 2)])
 def test_no_budget_for_read_plus_finish(steps, calls):
     assert choose_observed_second_read(
         "Which organization partnered with Old Mill Group?",
@@ -65,6 +65,12 @@ def test_no_budget_for_read_plus_finish(steps, calls):
     {"kind": "search", "query": "x", "hits": [
         {**hit("d-bridge", "Blue Garden Foundation"), "score": float("nan")}]},
 ])
+def test_impossible_budget_rejected_closed():
+    with pytest.raises(ValueError, match="invalid original tool budgets"):
+        choose_observed_second_read(
+            "Which organization?", observed(), max_steps=1, max_tool_calls=3)
+
+
 def test_forbid_gold_fields_and_forged_unobserved_tool_state(bad):
     obs = observed()
     obs.append(bad)
