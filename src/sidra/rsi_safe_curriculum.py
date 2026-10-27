@@ -26,7 +26,7 @@ from sidra.rsi_challenge_scheduler import (
     TrainingChallengeSeed,select_generation_challenges,
     stratify_train_questions,
 )
-from sidra.rsi_trainer_admission import frozen_public_dev_ids
+from sidra.rsi_public_split_ids import frozen_public_dev_ids
 from sidra.rsi_train_history_audit import verify_train_rollout_file
 
 
