@@ -37,6 +37,12 @@ PARENT_STOP_SFT_SHA256 = (
 DEV_MANIFEST_SHA256 = (
     "3f0c494cca8b44cfef90c78d4d5b1fbb4158dc7387ed0f24316a0a265471d947"
 )
+# Pre-registered TRAIN64+source membership yields an immutable optimizer
+# question order under original V4 teacher seed153 (20 groups x 2 updates).
+# Don't silently select a new training subset when source code changes.
+EXPECTED_A8_TRAIN_SELECTION_SHA256 = (
+    "449d09935e9dee7f22e7fb1bafb77a94346c759c81600bed6c23e0358034184c"
+)
 A8_TRAIN_SEED = 153
 A8_GROUPS = 20
 A8_GENERATIONS = 4
@@ -219,6 +225,8 @@ def audit_preflight(
         dev_ids=dev_ids)
     if selection["frozen_internal_train_questions"] != A8.count:
         raise ValueError("A8 frozen internal TRAIN64 size drift")
+    if selection["selected_ids_sha256"] != EXPECTED_A8_TRAIN_SELECTION_SHA256:
+        raise ValueError("A8 pre-registered TRAIN optimizer question order drift")
     jobs = find_external_gpu_jobs() if gpu_jobs is None else gpu_jobs
     # Names/kinds only: no foreign process argv, credentials, payloads.
     if any(not isinstance(j.get("pid"), int) or not isinstance(j.get("kind"), str)
