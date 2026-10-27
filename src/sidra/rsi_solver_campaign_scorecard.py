@@ -41,6 +41,9 @@ def combine_verified_scouts(items: list[tuple[dict, dict]], *, planned_cohorts: 
         raise ValueError("malformed checkpoint SHA")
     if not isinstance(reference["model_id"], str) or not reference["model_id"]:
         raise ValueError("missing model identifier")
+    guard_enabled = items[0][0].get("observed_read_before_finish_guard", False)
+    if type(guard_enabled) is not bool:
+        raise ValueError("invalid rule guard role flag")
     total = Counter()
     tiers: dict[str, Counter] = {}
     per_cohort = []
@@ -48,6 +51,10 @@ def combine_verified_scouts(items: list[tuple[dict, dict]], *, planned_cohorts: 
     for run, audit in items:
         if any(run.get(k) != v for k, v in reference.items()):
             raise ValueError("decoder/model/checkpoint/tool policy changed between cohorts")
+        if (type(run.get("observed_read_before_finish_guard",False)) is not bool
+            or run.get("observed_read_before_finish_guard",False) != guard_enabled
+            or audit.get("observed_read_guard_declared",False) != guard_enabled):
+            raise ValueError("observed READ guard arm changed across cohorts")
         if (run.get("stage") != "actual_model_solver_tool_rollouts_NOT_training"
             or run.get("TRAIN_gold_loaded_or_graded_by_solver") is not False
             or run.get("on_policy_training_distribution_proven") is not False
@@ -127,6 +134,7 @@ def combine_verified_scouts(items: list[tuple[dict, dict]], *, planned_cohorts: 
         "model_identifier": reference["model_id"],
         "claimed_checkpoint_sha256_NOT_serving_attestation": checkpoint,
         "independent_model_origin_attestation": False,
+        "observed_READ_before_FINISH_guard_enabled": guard_enabled,
         "unique_solver_sampling_seeds": seeds,
         "model_calls": total["model_calls"],
         "prompt_tokens": total["prompt_tokens"],
