@@ -27,9 +27,7 @@ from sidra.rsi_challenge_scheduler import (
     stratify_train_questions,
 )
 from sidra.rsi_trainer_admission import frozen_public_dev_ids
-from sidra.schema import Question
-from sidra.rsi_trace_audit import audit_tool_trace
-from scripts.audit_rsi_train_rollouts import verify_train_rollout_file
+from sidra.rsi_train_history_audit import verify_train_rollout_file
 
 
 def _norm(text:str)->str:
