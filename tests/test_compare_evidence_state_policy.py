@@ -111,6 +111,6 @@ def test_same_model_tool_budget_required(tmp_path):
 def test_no_heldout_or_relabelled_dev_scoring(tmp_path):
     pilot,runs=fixture(tmp_path)
     heldout=tmp_path/"final_b160"/"converted"
-    heldout.mkdir()
+    heldout.mkdir(parents=True)
     with pytest.raises(ValueError,match="DEV pilot"):
         compare(heldout,runs,tmp_path/"not_run.json",bootstrap=250)
