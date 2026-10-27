@@ -45,7 +45,14 @@ def _rate_ci_by_question(rows:list[dict],key:str,denominator:str,
     if bootstrap<100:raise ValueError("bootstrap must be >=100")
     num=sum(float(r[key]) for r in rows)
     den=sum(float(r[denominator]) for r in rows)
-    if den<=0:raise ValueError(f"no eligible cases: {denominator}")
+    if den<=0:
+        # Some legal TRAIN cohorts have zero missing-support contrasts.
+        # Explicit null/zero-denominator metrics are more honest than
+        # raising or inventing zero model-necessity performance.
+        return {"value":None,"numerator":round(num,6),
+                "denominator":0,"question_clusters":len(ids),
+                "question_cluster_ci95":[None,None],
+                "valid_bootstrap_draws":0,"reason":"no_eligible_paired_cases"}
     rng=random.Random(seed)
     samples=[]
     for _ in range(bootstrap):
