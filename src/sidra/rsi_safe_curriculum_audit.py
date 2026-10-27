@@ -123,10 +123,13 @@ def audit_safe_original_train_campaign(
         raise ValueError("empty curriculum campaign")
     all_cohort_ids=set()
     count=0
+    first_seed=cohorts[0].get("selection_seed")
+    if type(first_seed) is not int:
+        raise ValueError("missing curriculum selection seed")
     for n,cohort in enumerate(cohorts,1):
-        if (cohort.get("planned_curriculum_cohort")!=n or
-            cohort.get("selection_seed")!=43+n-1 and
-             cohort.get("selection_seed")!=manifest.get("cohorts",[])[0].get("selection_seed",-100)+n-1):
+        if (cohort.get("planned_curriculum_cohort")!=n
+            or type(cohort.get("selection_seed")) is not int
+            or cohort["selection_seed"]!=first_seed+n-1):
             raise ValueError("nonconsecutive curriculum cohort or seed mismatch")
         if any(cohort.get(x)!=0 for x in (
             "model_solver_rollouts_in_this_campaign",
