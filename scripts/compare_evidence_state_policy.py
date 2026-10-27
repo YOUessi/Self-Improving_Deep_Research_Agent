@@ -50,7 +50,9 @@ def load(run:Path,*,expected_seed:int,expected_state:str):
 
 def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
             seeds:tuple[int,int]=(151,157),bootstrap:int=5000,
-            seed:int=831)->dict:
+            seed:int=831,treatment_mode:str="v1")->dict:
+    if treatment_mode not in {"v1","v2"}:
+        raise ValueError("treatment state mode must be v1 or v2")
     if out.exists():raise FileExistsError(out)
     if pilot.name!="converted" or pilot.parent.name!="pilot":
         raise ValueError("DEV pilot only; do not inspect frozen eval-A/final-B")
@@ -63,7 +65,7 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
         raise ValueError("two seeds and >=200 bootstrap draws required")
     data={}
     for s in seeds:
-        for mode in ("off","v1"):
+        for mode in ("off",treatment_mode):
             data[(s,mode)]=load(runs[(s,mode)],
                                 expected_seed=s,expected_state=mode)
     baseline=data[(seeds[0],"off")]
@@ -125,13 +127,13 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
         v0=[];v1=[];per=[]
         for qid in ids:
             before=sum(measures[(s,"off")][qid][k] for s in seeds)/len(seeds)
-            after=sum(measures[(s,"v1")][qid][k] for s in seeds)/len(seeds)
+            after=sum(measures[(s,treatment_mode)][qid][k] for s in seeds)/len(seeds)
             v0.append(before);v1.append(after);per.append(after-before)
         dist=sorted(sum(per[rng.randrange(len(ids))] for _ in ids)/len(ids)
                     for _ in range(bootstrap))
         metric_report[k]={
             "off_mean":round(sum(v0)/len(ids),6),
-            "state_v1_mean":round(sum(v1)/len(ids),6),
+            f"state_{treatment_mode}_mean":round(sum(v1)/len(ids),6),
             "delta":round(sum(per)/len(ids),6),
             "paired_32_question_cluster_bootstrap95":[
                 round(dist[int((bootstrap-1)*0.025)],6),
@@ -151,7 +153,7 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
         "source_sha":baseline_manifest["git_commit"],
         "adapter_sha":baseline_policy["source_adapter_sha256"],
         "policy":{"answer_proposer":"v4","control":"off",
-                  "treatment":"v1","one_token_categorical":True},
+                  "treatment":treatment_mode,"one_token_categorical":True},
         "metrics":metric_report,
         "state_model_gold_inputs":False,
         "gold_source_labels_used_only_after_trace":True,
@@ -166,14 +168,22 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
 def main():
     a=argparse.ArgumentParser()
     a.add_argument("--pilot",type=Path,required=True)
+    a.add_argument("--state-version",choices=("v1","v2"),default="v1")
     for seed in (151,157):
-        for mode in ("off","v1"):
-            a.add_argument(f"--run-{seed}-{mode}",type=Path,required=True)
+        a.add_argument(f"--run-{seed}-off",type=Path,required=True)
+        for mode in ("v1","v2"):
+            a.add_argument(f"--run-{seed}-{mode}",type=Path)
     a.add_argument("--out",type=Path,required=True)
     v=a.parse_args()
-    runs={(seed,mode):getattr(v,f"run_{seed}_{mode}")
-          for seed in (151,157) for mode in ("off","v1")}
-    print(json.dumps(compare(v.pilot,runs,v.out),indent=2))
+    runs={}
+    for seed in (151,157):
+        for mode in ("off",v.state_version):
+            path=getattr(v,f"run_{seed}_{mode}")
+            if path is None:
+                a.error(f"--run-{seed}-{mode} is required for {v.state_version}")
+            runs[(seed,mode)]=path
+    print(json.dumps(compare(v.pilot,runs,v.out,
+                             treatment_mode=v.state_version),indent=2))
 
 
 if __name__=="__main__":
