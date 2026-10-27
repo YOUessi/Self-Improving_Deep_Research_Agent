@@ -156,6 +156,14 @@ def validate_a8_selection(
     }
 
 
+def assert_exact_preregistered_optimizer_selection(selection: dict) -> None:
+    """Reject even TRAIN-only substitutions in the A8 optimizer sample."""
+    if selection.get("selected_optimizer_train_questions") != A8_GROUPS * A8_UPDATES:
+        raise ValueError("A8 pre-registered optimizer count drift")
+    if selection.get("selected_ids_sha256") != EXPECTED_A8_TRAIN_SELECTION_SHA256:
+        raise ValueError("A8 pre-registered TRAIN optimizer question order drift")
+
+
 def validate_parent_adapter(path: Path) -> str:
     weights = path / "adapter_model.safetensors"
     if not weights.is_file() or not (path / "adapter_config.json").is_file():
@@ -225,8 +233,7 @@ def audit_preflight(
         dev_ids=dev_ids)
     if selection["frozen_internal_train_questions"] != A8.count:
         raise ValueError("A8 frozen internal TRAIN64 size drift")
-    if selection["selected_ids_sha256"] != EXPECTED_A8_TRAIN_SELECTION_SHA256:
-        raise ValueError("A8 pre-registered TRAIN optimizer question order drift")
+    assert_exact_preregistered_optimizer_selection(selection)
     jobs = find_external_gpu_jobs() if gpu_jobs is None else gpu_jobs
     # Names/kinds only: no foreign process argv, credentials, payloads.
     if any(not isinstance(j.get("pid"), int) or not isinstance(j.get("kind"), str)
