@@ -78,7 +78,11 @@ def annotate_train_finish_preferences(episodes:list[dict],question:Question)->di
                     if c.get("kind")!="finish" or not c.get("answer","").strip():
                         continue
                     cited=c.get("citations")
-                    if not isinstance(cited,list) or len(cited)!=len(set(cited)):
+                    # Action.to_dict() keeps tuple citations in-memory;
+                    # JSONL round-trips make them lists. Both are canonical.
+                    if (not isinstance(cited,(list,tuple))
+                        or len(cited)!=len(set(cited))
+                        or not all(isinstance(doc_id,str) for doc_id in cited)):
                         raise ValueError("invalid candidate citation IDs")
                     cite_set=set(cited)
                     if not (gold.issubset(cite_set) and cite_set.issubset(read)):
