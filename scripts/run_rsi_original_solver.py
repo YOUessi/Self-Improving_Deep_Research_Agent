@@ -35,6 +35,8 @@ def main():
     s.add_argument("--checkpoint-sha256",required=True)
     s.add_argument("--seed",type=int,default=43)
     s.add_argument("--max-tokens",type=int,default=240)
+    s.add_argument("--observed-read-before-finish",action="store_true",
+                   help="opt-in rule guard, at most one ordinary extra READ")
     a=sub.add_parser("audit")
     a.add_argument("--train-data",type=Path,required=True)
     a.add_argument("--campaign",type=Path,required=True)
@@ -51,7 +53,8 @@ def main():
                                model=args.model,
                                checkpoint_sha256=args.checkpoint_sha256,
                                source_sha=args.source_sha,seed=args.seed,
-                               max_tokens=args.max_tokens)
+                               max_tokens=args.max_tokens,
+                               use_observed_read_guard=args.observed_read_before_finish)
     else:
         if args.out.exists():raise FileExistsError(args.out)
         result=audit_solver_run(args.train_data,args.campaign,args.pack,args.run,
