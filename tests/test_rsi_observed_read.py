@@ -65,17 +65,17 @@ def test_no_budget_for_read_plus_finish(steps, calls):
     {"kind": "search", "query": "x", "hits": [
         {**hit("d-bridge", "Blue Garden Foundation"), "score": float("nan")}]},
 ])
-def test_impossible_budget_rejected_closed():
-    with pytest.raises(ValueError, match="invalid original tool budgets"):
-        choose_observed_second_read(
-            "Which organization?", observed(), max_steps=1, max_tool_calls=3)
-
-
 def test_forbid_gold_fields_and_forged_unobserved_tool_state(bad):
     obs = observed()
     obs.append(bad)
     with pytest.raises(ValueError):
         choose_observed_second_read("Which organization partnered?", obs)
+
+
+def test_impossible_budget_rejected_closed():
+    with pytest.raises(ValueError, match="invalid original tool budgets"):
+        choose_observed_second_read(
+            "Which organization?", observed(), max_steps=1, max_tool_calls=3)
 
 
 def test_same_doc_in_conflicting_search_sources_rejected():
