@@ -34,6 +34,7 @@ from sidra.train_reward import score_train_rollout,group_normalized_advantages
 from sidra.step_credit import assign_step_evidence_credit
 from sidra.finish_preference import annotate_train_finish_preferences,finish_positive_nll
 from sidra.read_preference import annotate_train_read_preferences,read_positive_nll
+from sidra.gpu_coordination import assert_no_external_gpu_jobs
 
 
 def _sha256(path:Path)->str:
@@ -294,6 +295,9 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     if not math.isfinite(read_aux_weight) or not 0<=read_aux_weight<=1:
         raise ValueError("invalid TRAIN-supervised READ preference weight")
     import torch,transformers,peft
+    # Catch foreign vLLM startup even before CUDA memory appears in nvidia-smi.
+    # Never terminate / signal another user process.
+    assert_no_external_gpu_jobs()
     docs,questions=load_dataset(data)
     dev=json.loads(dev_manifest.read_text())
     dev_ids=set(dev["pilot"]["selected_ids"])|set(dev["heldout"]["selected_ids"])
@@ -396,6 +400,9 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
                   "reward",[ep["train_reward"]["total"] for ep in versions],
                   "variable",int(any(abs(x)>1e-6 for x in adv)),
                   "elapsed",round(time.monotonic()-started,1),flush=True)
+        # Fail before creating an optimizer graph if another model server
+        # appeared during rollout sampling. The project flock is still required.
+        assert_no_external_gpu_jobs()
         report=finite_action_update(
             model,trajectories,optimizer,credit_mode=credit_mode,
             finish_aux_weight=finish_aux_weight,
@@ -508,6 +515,7 @@ def run_eval(*,data:Path,model_path:Path,adapter_path:Path,
     # This is a PUBLIC research pilot, not the gated sealed final benchmark.
     if split not in {"dev","train"}:
         raise ValueError("exploratory finite-action evaluation forbids sealed TEST")
+    assert_no_external_gpu_jobs()
     policy=load_policy(model_path,adapter_path,seed=seed,
                        trainable=False,ctx=max_context,
                        max_tool_calls=max_tool_calls,
