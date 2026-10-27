@@ -114,3 +114,24 @@ def test_no_heldout_or_relabelled_dev_scoring(tmp_path):
     heldout.mkdir(parents=True)
     with pytest.raises(ValueError,match="DEV pilot"):
         compare(heldout,runs,tmp_path/"not_run.json",bootstrap=250)
+
+
+def test_v2_paired_comparator_uses_same_question_cluster_bootstrap(tmp_path):
+    pilot,runs=fixture(tmp_path)
+    # Existing synthetic helper's treatment data have identical schema; only
+    # rename the metadata to the v2 policy mode.
+    for seed in (151,157):
+        source=runs[(seed,"v1")]
+        p=source/"FINITE_ACTION_POLICY.json"
+        payload=json.loads(p.read_text())
+        payload["evidence_state_mode"]="v2"
+        p.write_text(json.dumps(payload))
+        runs[(seed,"v2")]=source
+    out=tmp_path/"v2_paired.json"
+    result=compare(pilot,runs,out,treatment_mode="v2",bootstrap=250)
+    assert result["policy"]["treatment"]=="v2"
+    assert result["n_original_question_clusters"]==32
+    assert result["metrics"]["exact_match"]["state_v2_mean"]>result[
+        "metrics"]["exact_match"]["off_mean"]
+    with pytest.raises(ValueError,match="treatment"):
+        compare(pilot,runs,tmp_path/"invalid.json",treatment_mode="unknown")
