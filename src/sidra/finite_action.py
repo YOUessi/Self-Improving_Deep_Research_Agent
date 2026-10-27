@@ -43,9 +43,9 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
-        if self.evidence_state_mode not in {"off","v1"}:
-            raise ValueError("evidence_state_mode must be off or v1")
-        if self.evidence_state_mode=="v1" and self.answer_proposer not in {"v4","v5"}:
+        if self.evidence_state_mode not in {"off","v1","v2"}:
+            raise ValueError("evidence_state_mode must be off, v1 or v2")
+        if self.evidence_state_mode in {"v1","v2"} and self.answer_proposer not in {"v4","v5"}:
             raise ValueError("evidence state v1 currently requires V4/V5 finite catalogs")
         if self.answer_proposer not in {"legacy","v2","v3","v4","v5"}:
             raise ValueError("unknown answer proposer; use legacy, v2, v3, v4 or v5")
@@ -152,8 +152,8 @@ def build_legal_actions(question:str,observations:list[dict],
         if not latest_read:
             search_queries.extend(_entities(question,limit=4))
         search_queries.append(question.strip()[:180])
-    state=(derive_evidence_state(question,observations)
-           if cfg.evidence_state_mode=="v1" else None)
+    state=(derive_evidence_state(question,observations,version=cfg.evidence_state_mode)
+           if cfg.evidence_state_mode in {"v1","v2"} else None)
     if state is not None and state.next_bridge_query and can_use_tools:
         # Prioritize a specific *observed* unresolved bridge gap for the
         # bounded SEARCH catalog, not a hidden supporting document ID.
@@ -307,6 +307,7 @@ def action_prompt(tokenizer,question:str,observations:list[dict],
             "phase":state.evidence_gap,
             "distinct_READ":len(state.read_sources),
             "linked_READ_pairs":len(state.linked_pairs),
+            "anchored_bridge_pairs":len(state.anchored_linked_pairs),
             "question_anchor_coverage":round(state.anchor_coverage,3),
             "next_bridge_query":state.next_bridge_query,
         }
@@ -409,7 +410,7 @@ class FiniteActionPolicy:
         prior=(action_logit_biases(question,observations,candidates)
                if self.cfg.answer_proposer in {"v4","v5"} else None)
         state=(derive_evidence_state(question,observations)
-               if self.cfg.evidence_state_mode=="v1" else None)
+               if self.cfg.evidence_state_mode in {"v1","v2"} else None)
         self.last_evidence_state=state.public_summary() if state is not None else None
         if state is not None:
             delta=state.action_biases(candidates)
