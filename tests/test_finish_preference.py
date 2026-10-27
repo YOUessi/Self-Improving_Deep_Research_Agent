@@ -39,9 +39,10 @@ def _episode(*,missing_second_read=False,correct_answer_in_read=True,
     search={"kind":"search","query":"Mason Bridge Port"}
     a={"kind":"read","doc_id":"a"}
     b={"kind":"read","doc_id":"b"}
-    cite=["a","nonexistent"] if bad_final_citations else ["a","b"]
+    # Actual Action.to_dict() returns tuples in memory (JSONL uses lists).
+    cite=("a","nonexistent") if bad_final_citations else ("a","b")
     correct={"kind":"finish","answer":"Port","citations":cite}
-    wrong={"kind":"finish","answer":"An Unrelated City","citations":["a","b"]}
+    wrong={"kind":"finish","answer":"An Unrelated City","citations":("a","b")}
     steps=[
         {"action":search,"observation":{"kind":"search",
             "hits":[{"doc_id":"a"},{"doc_id":"b"}]}},
@@ -193,3 +194,12 @@ def test_out_of_bounds_bias_and_duplicate_positive_indices_rejected():
     sample["action_logit_biases"]=[5,0]
     with pytest.raises(ValueError,match="prior"):
         finish_positive_nll(Toy(),sample)
+
+
+def test_jsonl_round_trip_list_citations_are_also_accepted():
+    import json
+    episodes=json.loads(json.dumps([_episode(),_episode()]))
+    report=annotate_train_finish_preferences(episodes,_q())
+    assert report["eligible_states"]==2
+    assert all(ep["action_samples"][-1]["train_only_finish_positive_indices"]==[0]
+               for ep in episodes)
