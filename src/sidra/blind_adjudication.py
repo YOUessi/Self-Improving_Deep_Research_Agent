@@ -171,6 +171,13 @@ def freeze_blind_packet(*,dataset:Path,original_train:Path,
             "prior_E026_frozen_rows":file_sha256(prior_e026_rows),
         },
         "seed":seed,
+        "frozen_claim_ids_sha256":_digest("\\n".join(sorted(x["claim_id"] for x in packets))),
+        "reviewer_packet_sha256":{
+            "A":file_sha256(out/"REVIEWER_A_BLIND.jsonl"),
+            "B":file_sha256(out/"REVIEWER_B_BLIND.jsonl"),
+        },
+        "private_registry_sha256":file_sha256(
+            out/"REGISTRY_PRIVATE_DO_NOT_SHARE_WITH_REVIEWERS.jsonl"),
         "reviewer_instructions":_REVIEW_PROMPT,
         "required_follow_up":(
             "Two truly independent human reviewers must separately annotate "
@@ -210,6 +217,8 @@ def compare_independent_reviews(*,review_a:Path,review_b:Path,manifest:Path)->di
     a,aid=read(review_a);b,bid=read(review_b)
     if aid==bid or not aid or not bid or set(a)!=set(b):
         raise ValueError("must have independent declared reviewers for same cases")
+    if _digest("\\n".join(sorted(a)))!=meta.get("frozen_claim_ids_sha256"):
+        raise ValueError("review claim IDs differ from locked blind packet")
     disagreements=[
         cid for cid in sorted(a)
         if a[cid]["rating"]!=b[cid]["rating"]
