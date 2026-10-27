@@ -183,7 +183,7 @@ def run(pilot:Path,traces:Path,out:Path, *,
             try:
                 payload,usage,elapsed=get_solver_output(
                     endpoint,quote_prompt(original.question,reads,model=model),
-                    timeout=75)
+                    timeout=75,expected_keys=frozenset({"answer","evidence"}))
                 counts["solver_prompt_tokens"]+=int(usage.get("prompt_tokens") or 0)
                 counts["solver_completion_tokens"]+=int(usage.get("completion_tokens") or 0)
                 counts["solver_latency_seconds"]+=elapsed
