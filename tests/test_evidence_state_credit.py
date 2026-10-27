@@ -114,3 +114,46 @@ def test_v2_reward_refuses_to_count_unrelated_distractor_read():
             assert action["tool_observation_targets"]==0
     with pytest.raises(ValueError,match="version"):
         assign_evidence_state_credit(episodes,Q,state_version="v0")
+
+
+def test_v3_reward_suppresses_observable_but_non_gold_anchor_progress():
+    import copy
+    episodes=[episode(True),episode(False),episode(True),episode(False)]
+    # A second document bearing the SAME question-anchor title is really
+    # READ, but it is NOT one of the original TRAIN support IDs.
+    fake=episodes[1]
+    first_hit=fake["trace"]["steps"][0]["observation"]["hits"][0]
+    assert first_hit["doc_id"]=="d"
+    first_hit.update({"doc_id":"x","title":"River City",
+                      "snippet":"River City was founded in 1700."})
+    fake_step=fake["trace"]["steps"][1]
+    fake_step["action"]["doc_id"]="x"
+    fake_step["observation"].update({
+        "doc_id":"x","title":"River City",
+        "text":"River City was founded in 1700. No other relation here.",
+    })
+    fake["action_samples"][1]["legal_actions"][0]["doc_id"]="x"
+    audit=assign_evidence_state_credit(episodes,Q,state_version="v3")
+    assert audit["mode"]=="evidence_state_delta_v3"
+    assert audit["policy_prompt_or_catalog_sees_original_labels"] is False
+    wrong_read=fake["action_samples"][1]
+    assert wrong_read["evidence_state_delta_raw"]>0
+    assert wrong_read["evidence_state_delta_credited_raw"]==0
+    assert wrong_read["step_state_train_reward_raw"]==0
+    assert audit["by_kind"]["read"]["suppressed_state_delta_total"]>0
+    true_read=episodes[0]["action_samples"][1]
+    assert true_read["step_state_train_reward_raw"]>0
+    assert episodes[0]["action_samples"][-1]["step_state_train_reward_raw"]==1
+    assert episodes[1]["action_samples"][-1]["step_state_train_reward_raw"]==0
+    assert all(x["tool_observation_targets"]==0
+               for ep in episodes for x in ep["action_samples"])
+
+
+def test_v3_training_credit_must_match_v3_policy_version():
+    episodes=[episode(True),episode(False)]
+    assert assign_evidence_state_credit(episodes,Q,state_version="v3")[
+        "state_version"]=="v3"
+    with pytest.raises(ValueError,match="TRAIN"):
+        assign_evidence_state_credit(episodes,
+            Question("dev","Q","A",split="dev",supporting_doc_ids=("a","b")),
+            state_version="v3")

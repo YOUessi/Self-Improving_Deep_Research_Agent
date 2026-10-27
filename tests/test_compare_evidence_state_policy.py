@@ -135,3 +135,22 @@ def test_v2_paired_comparator_uses_same_question_cluster_bootstrap(tmp_path):
         "metrics"]["exact_match"]["off_mean"]
     with pytest.raises(ValueError,match="treatment"):
         compare(pilot,runs,tmp_path/"invalid.json",treatment_mode="unknown")
+
+
+def test_v3_paired_comparison_reconstructs_the_same_v3_state_in_both_arms(tmp_path):
+    pilot,runs=fixture(tmp_path)
+    for seed in (151,157):
+        source=runs[(seed,"v1")]
+        p=source/"FINITE_ACTION_POLICY.json"
+        info=json.loads(p.read_text())
+        info["evidence_state_mode"]="v3"
+        p.write_text(json.dumps(info))
+        runs[(seed,"v3")]=source
+    report=compare(pilot,runs,tmp_path/"v3_paired.json",
+                   treatment_mode="v3",bootstrap=250)
+    assert report["policy"]["treatment"]=="v3"
+    assert report["state_reconstruction_version_for_both_arms"]=="v3"
+    assert report["n_original_question_clusters"]==32
+    assert report["metrics"]["observed_cross_links"]["off_mean"]==1
+    assert report["metrics"]["observed_cross_links"]["state_v3_mean"]==1
+    assert report["metrics"]["verified_success"]["delta"]==pytest.approx(3/32)

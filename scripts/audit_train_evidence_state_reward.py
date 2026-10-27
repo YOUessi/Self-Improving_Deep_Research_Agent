@@ -33,7 +33,7 @@ def digest(path:Path)->str:
 
 def audit(data:Path,rollouts:Path,out:Path, *,expected_generations:int=4,
           state_version:str="v1")->dict:
-    if state_version not in {"v1","v2"}:raise ValueError("unknown state version")
+    if state_version not in {"v1","v2","v3"}:raise ValueError("unknown state version")
     if out.exists():raise FileExistsError(out)
     if data.name!="converted" or not data.parent.name.startswith("train"):
         raise ValueError("original TRAIN-only data required")
@@ -115,7 +115,7 @@ def main():
     a.add_argument("--train-data",type=Path,required=True)
     a.add_argument("--rollouts",type=Path,required=True)
     a.add_argument("--out",type=Path,required=True)
-    a.add_argument("--state-version",choices=("v1","v2"),default="v1")
+    a.add_argument("--state-version",choices=("v1","v2","v3"),default="v1")
     s=a.parse_args()
     print(json.dumps(audit(s.train_data,s.rollouts,s.out,
                            state_version=s.state_version),indent=2))

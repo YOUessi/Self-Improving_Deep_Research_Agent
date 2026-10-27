@@ -43,10 +43,10 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
-        if self.evidence_state_mode not in {"off","v1","v2"}:
-            raise ValueError("evidence_state_mode must be off, v1 or v2")
-        if self.evidence_state_mode in {"v1","v2"} and self.answer_proposer not in {"v4","v5"}:
-            raise ValueError("evidence state v1 currently requires V4/V5 finite catalogs")
+        if self.evidence_state_mode not in {"off","v1","v2","v3"}:
+            raise ValueError("evidence_state_mode must be off, v1, v2 or v3")
+        if self.evidence_state_mode in {"v1","v2","v3"} and self.answer_proposer not in {"v4","v5"}:
+            raise ValueError("evidence state requires V4/V5 finite catalogs")
         if self.answer_proposer not in {"legacy","v2","v3","v4","v5"}:
             raise ValueError("unknown answer proposer; use legacy, v2, v3, v4 or v5")
 
@@ -153,7 +153,7 @@ def build_legal_actions(question:str,observations:list[dict],
             search_queries.extend(_entities(question,limit=4))
         search_queries.append(question.strip()[:180])
     state=(derive_evidence_state(question,observations,version=cfg.evidence_state_mode)
-           if cfg.evidence_state_mode in {"v1","v2"} else None)
+           if cfg.evidence_state_mode in {"v1","v2","v3"} else None)
     if state is not None and state.next_bridge_query and can_use_tools:
         # Prioritize a specific *observed* unresolved bridge gap for the
         # bounded SEARCH catalog, not a hidden supporting document ID.
@@ -174,6 +174,12 @@ def build_legal_actions(question:str,observations:list[dict],
         actions.append(Action(kind="search",query=q))
     if read:
         visible=list(read.values())
+        if state is not None and state.version=="v3" and state.anchored_linked_pairs:
+            # Keep chain-bearing sources within the proposer's last two READ
+            # contexts, even after an unrelated last READ.
+            pair=set(state.anchored_linked_pairs[0])
+            visible=([o for o in visible if o.get("doc_id") not in pair]
+                     +[o for o in visible if o.get("doc_id") in pair])
         # Use the union of *read* sources, not predicted supporting facts.
         # V3 evidence-first policy: at least two distinct documents must have
         # been ACTUALLY read before producing a factual answer. This is a
@@ -236,6 +242,11 @@ def build_legal_actions(question:str,observations:list[dict],
         # without ever admitting an unseen document or an illegal tool action.
         # Capacity is at most nine including the last-resort abstention.
         factual=[a for a in result if a.kind=="finish" and a.answer]
+        if state is not None and state.version=="v3":
+            # The bounded catalog must expose candidate answers supported
+            # inside the SAME linked evidence chain used for READ/SEARCH.
+            # Stable sort preserves original V4 ordering among equal scores.
+            factual.sort(key=lambda a:-state.action_biases([a])[0])
         tools=[a for a in result if a.kind in {"search","read"}]
         budget=cfg.max_candidates-1
         finish=factual[:min(4,budget)]
@@ -310,6 +321,21 @@ def action_prompt(tokenizer,question:str,observations:list[dict],
             "anchored_bridge_pairs":len(state.anchored_linked_pairs),
             "question_anchor_coverage":round(state.anchor_coverage,3),
             "next_bridge_query":state.next_bridge_query,
+        }
+    elif cfg.evidence_state_mode=="v3":
+        # V2 prompt contract is deliberately frozen for historical A/B.
+        # V3 closes its missing leg: the SAME state driving next tool choice
+        # and post-episode TRAIN credit is visible to the policy model.
+        state=derive_evidence_state(question,observations,version="v3")
+        exposed["evidence_state"]={
+            "version":"v3",
+            "next_evidence_gap":state.evidence_gap,
+            "pending_linked_read_ids":list(state.pending_linked_hit_ids),
+            "anchored_READ_count":len(state.anchored_read_ids),
+            "observed_linked_READ_pairs":[list(p) for p in
+                                           state.anchored_linked_pairs],
+            "next_bridge_search":state.next_bridge_query,
+            "warning":"lexical links are not proof of answer truth",
         }
     if "gold_answer" in json.dumps(exposed) or "supporting_doc_ids" in json.dumps(exposed):
         raise ValueError("hidden evaluator label leakage")
@@ -411,7 +437,7 @@ class FiniteActionPolicy:
                if self.cfg.answer_proposer in {"v4","v5"} else None)
         state=(derive_evidence_state(question,observations,
                                      version=self.cfg.evidence_state_mode)
-               if self.cfg.evidence_state_mode in {"v1","v2"} else None)
+               if self.cfg.evidence_state_mode in {"v1","v2","v3"} else None)
         self.last_evidence_state=state.public_summary() if state is not None else None
         if state is not None:
             delta=state.action_biases(candidates)

@@ -2,7 +2,7 @@
 
 Same frozen DEV PILOT32, same model LoRA, same V4 candidate proposer, same
 tool budgets, independent two-seed repetitions. The ONLY policy dimension
-allowed to differ is evidence_state_mode OFF vs V1.
+allowed to differ is evidence_state_mode OFF vs V1/V2/V3.
 
 Report answer/strict citation, gold support READ/SEARCH exposure (POSTHOC
 evaluator only), link-state observations and incremental compute cost.
@@ -51,7 +51,7 @@ def load(run:Path,*,expected_seed:int,expected_state:str):
 def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
             seeds:tuple[int,int]=(151,157),bootstrap:int=5000,
             seed:int=831,treatment_mode:str="v1")->dict:
-    if treatment_mode not in {"v1","v2"}:
+    if treatment_mode not in {"v1","v2","v3"}:
         raise ValueError("treatment state mode must be v1 or v2")
     if out.exists():raise FileExistsError(out)
     if pilot.name!="converted" or pilot.parent.name!="pilot":
@@ -103,7 +103,7 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
                          if o.get("kind")=="search"
                          for h in o.get("hits",[]) if h.get("doc_id")}
             gold=set(q.supporting_doc_ids)
-            state=derive_evidence_state(q.question,obs)
+            state=derive_evidence_state(q.question,obs,version=treatment_mode)
             scored={k:float(row[k]) for k in METRICS
                     if k in row and k not in {
                         "gold_read_pair","gold_search_exposed_pair",
@@ -112,7 +112,9 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
                 "gold_read_pair":float(bool(gold) and gold.issubset(read_ids)),
                 "gold_search_exposed_pair":float(
                     bool(gold) and gold.issubset(exposed_ids)),
-                "observed_cross_links":float(bool(state.linked_pairs)),
+                "observed_cross_links":float(bool(
+                    state.linked_pairs if treatment_mode=="v1" else
+                    state.anchored_linked_pairs)),
                 "observed_potential":state.potential,
             })
             if set(scored)!=set(METRICS) or not all(
@@ -155,6 +157,7 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
         "policy":{"answer_proposer":"v4","control":"off",
                   "treatment":treatment_mode,"one_token_categorical":True},
         "metrics":metric_report,
+        "state_reconstruction_version_for_both_arms":treatment_mode,
         "state_model_gold_inputs":False,
         "gold_source_labels_used_only_after_trace":True,
         "grant_train_only_online_grpo_trial":decision,
@@ -168,10 +171,10 @@ def compare(pilot:Path,runs:dict[tuple[int,str],Path],out:Path, *,
 def main():
     a=argparse.ArgumentParser()
     a.add_argument("--pilot",type=Path,required=True)
-    a.add_argument("--state-version",choices=("v1","v2"),default="v1")
+    a.add_argument("--state-version",choices=("v1","v2","v3"),default="v1")
     for seed in (151,157):
         a.add_argument(f"--run-{seed}-off",type=Path,required=True)
-        for mode in ("v1","v2"):
+        for mode in ("v1","v2","v3"):
             a.add_argument(f"--run-{seed}-{mode}",type=Path)
     a.add_argument("--out",type=Path,required=True)
     v=a.parse_args()
