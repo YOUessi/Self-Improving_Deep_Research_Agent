@@ -183,13 +183,30 @@ def main()->None:
     p=argparse.ArgumentParser()
     for name in ("frozen","train-summary","baseline","candidate","out"):
         p.add_argument("--"+name,required=True,type=Path)
+    # Mandatory CLI-only independent source replay. Core audit_pair_train64()
+    # remains fixture-testable; production CLI cannot trust the FREEZE_MANIFEST
+    # alone or skip historical teacher/optimizer contamination checks.
+    p.add_argument("--m7-root",required=True,type=Path,
+                   help="M7 root containing the 6 pinned teacher files and 11 prior fits")
+    p.add_argument("--original-train-source",required=True,type=Path,
+                   help="Original immutable 1024-question TRAIN converted corpus")
     p.add_argument("--bootstrap",type=int,default=5000)
     p.add_argument("--seed",type=int,default=919)
     args=p.parse_args()
-    print(json.dumps(audit_pair_train64(
+    if __package__:
+        from scripts.audit_a8_frozen_integrity import validate_a8_freeze
+    else:
+        from audit_a8_frozen_integrity import validate_a8_freeze
+    provenance=validate_a8_freeze(
+        m7root=args.m7_root,source=args.original_train_source,
+        frozen=args.frozen)
+    audit=audit_pair_train64(
         frozen=args.frozen,train_summary=args.train_summary,
         baseline=args.baseline,candidate=args.candidate,out=args.out,
-        bootstrap=args.bootstrap,seed=args.seed),indent=2))
+        bootstrap=args.bootstrap,seed=args.seed)
+    # Immutable paired audit already written. A separate stable SHA of the
+    # provenance artifact can be kept in the run log without modifying it.
+    print(json.dumps({"provenance":provenance,"paired":audit},indent=2))
 
 
 if __name__=="__main__":
