@@ -70,23 +70,35 @@ class FakeObservedLLM:
     name="fake_test_policy"
     def __init__(self,*args,**kwargs):
         self.model_calls=0
+        self.seed=kwargs.get("seed",43)
         self.prompt_tokens=0
         self.completion_tokens=0
         self.action_io=[]
     def decide(self,question,observations,remaining):
         assert question=="Where does Harbor River flow?"
-        self.model_calls+=1
-        self.action_io.append({"messages":[{"role":"user","content":question}],
-                               "raw_completion":"CPU TEST FIXTURE ONLY"})
-        self.prompt_tokens+=20
-        self.completion_tokens+=10
         found=[h["doc_id"] for o in observations if o["kind"]=="search"
                for h in o["hits"]]
         read=[o["doc_id"] for o in observations if o["kind"]=="read"]
-        if not found:return Action("search",query="Harbor River Harbor")
-        if len(read)<2:
-            return Action("read",doc_id=next(x for x in found if x not in read))
-        return Action("finish",answer="Harbor",citations=tuple(read))
+        if not found:action=Action("search",query="Harbor River Harbor")
+        elif len(read)<2:
+            action=Action("read",doc_id=next(x for x in found if x not in read))
+        else:action=Action("finish",answer="Harbor",citations=tuple(read))
+        self.action_io.append({
+            "messages":[
+                {"role":"system","content":"CPU ONLY TEST; not a real LLM"},
+                {"role":"user","content":json.dumps({
+                    "question":question,"remaining_steps":remaining,
+                    "tool_history":observations})},
+            ],
+            "raw_completion":json.dumps(action.to_dict()),
+            "generation_seed":self.seed+self.model_calls,
+            "prompt_tokens":20,"completion_tokens":10,
+            "constrained_schema":True,
+        })
+        self.model_calls+=1
+        self.prompt_tokens+=20
+        self.completion_tokens+=10
+        return action
 
 
 def test_training_labels_never_enter_model_pack_and_real_tool_replay_is_independent(tmp_path,monkeypatch):
@@ -173,3 +185,29 @@ def test_reject_external_endpoints_and_final_b_paths(tmp_path):
     with pytest.raises(ValueError,match="refuse heldout/final-B"):
         prepare_solver_pack(tmp_path/"final-B160"/"documents.jsonl",campaign,1,
                             tmp_path/"bad",source_sha=SHA)
+
+
+def test_hash_laundered_fake_model_prompt_cannot_pass_verifier(tmp_path,monkeypatch):
+    train,campaign=case(tmp_path)
+    pack=tmp_path/"model_only"
+    prepare_solver_pack(train/"documents.jsonl",campaign,1,pack,source_sha=SHA)
+    from sidra import policies
+    monkeypatch.setattr(policies,"OpenAICompatiblePolicy",FakeObservedLLM)
+    output=tmp_path/"recorded"
+    run_real_solver(pack,output,endpoint="http://127.0.0.1:19999/v1/chat/completions",
+                    model="stub",checkpoint_sha256="b"*64,source_sha=SHA)
+    io_file=output/"MODEL_ACTION_IO.jsonl"
+    entries=[json.loads(x) for x in io_file.read_text().splitlines()]
+    msg=entries[0]["calls"][0]["messages"][1]
+    body=json.loads(msg["content"])
+    body["gold_answer"]="Harbor"  # Explicit forbidden trust-domain crossing
+    msg["content"]=json.dumps(body)
+    rows(io_file,entries)
+    # Launder the file SHA inside the run manifest too: content verification
+    # independently rejects the injected model-facing gold regardless.
+    path=output/"SOLVER_RUN_MANIFEST.json"
+    manifest=json.loads(path.read_text())
+    manifest["model_action_io_sha256"]=checksum(io_file)
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError,match="goldblind replayed tools"):
+        audit_solver_run(train,campaign,pack,output,source_sha=SHA)
