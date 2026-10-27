@@ -21,6 +21,8 @@ from sidra.rsi_trainer_admission import Cohort,audit_training_admission
 def main()->None:
     parser=argparse.ArgumentParser()
     parser.add_argument("--train-data",type=Path,required=True)
+    parser.add_argument("--public-dev-id-manifest",type=Path,required=True,
+                        help="Frozen PUBLIC DEV pilot+heldout IDs only; never final-B")
     parser.add_argument("--cohort",nargs=4,action="append",required=True,
                         metavar=("QUEUE_DIR","GROUNDED_DIR","SEMANTIC_DIR","POSTHOC_DIR"))
     parser.add_argument("--out-dir",type=Path,required=True)
@@ -29,6 +31,7 @@ def main()->None:
     cohorts=[Cohort(*(Path(p) for p in entry)) for entry in args.cohort]
     result=audit_training_admission(
         args.train_data,cohorts,args.out_dir,
+        public_dev_id_manifest=args.public_dev_id_manifest,
         near_duplicate_cutoff=args.near_duplicate_cutoff,
     )
     print(json.dumps(result,indent=2,sort_keys=True,ensure_ascii=False))
