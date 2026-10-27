@@ -178,32 +178,41 @@ def _validate_public_pack(pack:Path):
 def run_real_solver(pack:Path,out:Path,*,endpoint:str,model:str,
                     checkpoint_sha256:str,source_sha:str,
                     seed:int=43,max_tokens:int=240,
-                    config:AgentConfig|None=None)->dict:
+                    config:AgentConfig|None=None,
+                    use_observed_read_guard:bool=False)->dict:
     """Solver process: receives ONLY public/sanitized model pack, no gold."""
     if out.exists():raise FileExistsError(out)
     if not endpoint.startswith(("http://127.0.0.1:","http://localhost:")):
         raise ValueError("solver may only call local inference service")
     if not re.fullmatch("[0-9a-f]{64}",checkpoint_sha256):
         raise ValueError("unverified model/adapter file SHA-256")
+    if type(use_observed_read_guard) is not bool:
+        raise ValueError("invalid observed READ guard toggle")
     public,prompts,docs=_validate_public_pack(pack)
     if public["source_git_sha"]!=source_sha:
         raise ValueError("source code and pack commit disagree")
     from sidra.policies import OpenAICompatiblePolicy
     cfg=config or AgentConfig(max_steps=6,max_tool_calls=5,search_top_k=3)
-    policy=OpenAICompatiblePolicy(
+    backend=OpenAICompatiblePolicy(
         endpoint,model,temperature=0.75,top_p=0.9,seed=seed,
         max_tokens=max_tokens,constrain_actions=True,constrain_document_ids=True)
+    if use_observed_read_guard:
+        from sidra.rsi_read_before_finish import ObservedReadBeforeFinishPolicy
+        policy=ObservedReadBeforeFinishPolicy(
+            backend,max_steps=cfg.max_steps,max_tool_calls=cfg.max_tool_calls)
+    else:
+        policy=backend
     agent=SearchAgent(docs,policy,cfg)
     traces=[]
     model_calls=[]
     for ix,item in enumerate(prompts):
-        start=len(policy.action_io)
+        start=len(backend.action_io)
         q=Question(item["challenge_id"],item["question"],"",
                    (),split="train",scope=item["challenge_id"])
         trace=agent.run(q)
         traces.append(trace.as_dict())
         model_calls.append({"challenge_id":item["challenge_id"],
-                            "calls":policy.action_io[start:]})
+                            "calls":backend.action_io[start:]})
         print("SOLVER",ix+1,"/",len(prompts),"termination",trace.termination,
               "tool_calls",trace.tool_calls,flush=True)
     if any(not item["calls"] for item in model_calls):
@@ -223,9 +232,10 @@ def run_real_solver(pack:Path,out:Path,*,endpoint:str,model:str,
         "model_origin_independently_attested":False,
         "temperature":0.75,"top_p":0.9,"seed":seed,
         "decoder":"vLLM_dynamic_JSON_schema_observed_docIDs",
-        "model_calls":policy.model_calls,
-        "prompt_tokens":policy.prompt_tokens,
-        "completion_tokens":policy.completion_tokens,
+        "model_calls":backend.model_calls,
+        "prompt_tokens":backend.prompt_tokens,
+        "completion_tokens":backend.completion_tokens,
+        "observed_read_before_finish_guard":use_observed_read_guard,
         "config":asdict(cfg),
         "terminations":dict(Counter(t["termination"] for t in traces)),
         "traces_sha256":sha256_file(out/"SOLVER_TRACES.jsonl"),
@@ -281,8 +291,12 @@ def audit_solver_run(train_data:Path,campaign:Path,pack:Path,run:Path,
         raise ValueError("Solver trace cardinality or ID mismatch")
     cfg=config or AgentConfig(max_steps=6,max_tool_calls=5,search_top_k=3)
     if r["config"]!=asdict(cfg):raise ValueError("tool budget changed")
+    guarded=r.get("observed_read_before_finish_guard",False)
+    if type(guarded) is not bool:
+        raise ValueError("invalid claimed observed READ guard role")
     checked_io=audit_model_action_io([AgentTrace(**x) for x in traces],io,
-                                     seed=r["seed"],config=cfg)
+                                     seed=r["seed"],config=cfg,
+                                     allow_observed_read_guard=guarded)
     if (checked_io["verified_response_count"]!=r["model_calls"]
         or checked_io["prompt_tokens"]!=r["prompt_tokens"]
         or checked_io["completion_tokens"]!=r["completion_tokens"]):
@@ -327,6 +341,8 @@ def audit_solver_run(train_data:Path,campaign:Path,pack:Path,run:Path,
         "n":totals["n"],
         "tool_replay_valid":totals["n"],
         "model_action_io_replay":checked_io,
+        "verified_deterministic_observed_READs":checked_io["verified_deterministic_observed_READs"],
+        "observed_read_guard_declared":guarded,
         "strict_original_TRAIN_successes":totals["strict"],
         "legal_finished_answers":totals["finish"],
         "nonerror_terminations":totals["nonerror"],
