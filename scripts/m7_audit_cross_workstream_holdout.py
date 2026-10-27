@@ -23,7 +23,7 @@ import argparse
 import json
 from pathlib import Path
 
-from sidra.holdout_history import make_refreeze
+from sidra.holdout_history import exposure_report, make_refreeze
 
 
 def main() -> None:
@@ -37,7 +37,9 @@ def main() -> None:
         "rsi-solver", "rsi-reserved", "obsolete-registry",
     ):
         p.add_argument("--"+flag, type=Path, action="append", required=True)
-    p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--out", type=Path, help="New empty directory, only when refreezing")
+    p.add_argument("--audit-only", action="store_true",
+                   help="Read-only fail-closed preflight for an already frozen cohort")
     p.add_argument("--seed", type=int, default=2030)
     a=p.parse_args()
     originals=json.loads(a.original_train.read_text(encoding="utf-8"))
@@ -57,13 +59,23 @@ def main() -> None:
         "rsi_reserved": a.rsi_reserved,
         "registry": a.obsolete_registry,
     }
-    result=make_refreeze(
-        old=a.frozen, valid_train_ids=train_ids, inputs=sources,
-        dataset=a.dataset, original_train=a.original_train,
-        e026_rows=a.prior_e026_rows, out=a.out, seed=a.seed)
+    if a.audit_only:
+        if a.out is not None:
+            raise ValueError("--audit-only must not specify --out")
+        result, _ = exposure_report(
+            frozen_directory=a.frozen, valid_train_ids=train_ids, inputs=sources)
+    else:
+        if a.out is None:
+            raise ValueError("--out required unless --audit-only")
+        result=make_refreeze(
+            old=a.frozen, valid_train_ids=train_ids, inputs=sources,
+            dataset=a.dataset, original_train=a.original_train,
+            e026_rows=a.prior_e026_rows, out=a.out, seed=a.seed)
     # Safe aggregate only: do not emit file paths, question IDs or annotations.
     clean = {k:v for k,v in result.items() if k!="historical_source_sha256"}
     print(json.dumps(clean, ensure_ascii=False, indent=2))
+    if a.audit_only and not result["audit_pass_disjointness"]:
+        raise SystemExit(2)
 
 
 if __name__=="__main__":
