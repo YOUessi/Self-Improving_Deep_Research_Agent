@@ -8,6 +8,8 @@ import pytest
 
 from scripts.audit_a8_train_launch import (
     A8_GROUPS, A8_TRAIN_SEED, A8_UPDATES, DEV_MANIFEST_SHA256,
+    EXPECTED_A8_TRAIN_SELECTION_SHA256,
+    assert_exact_preregistered_optimizer_selection,
     validate_a8_selection, validate_parent_adapter,
     validate_teacher_manifest,
 )
@@ -137,3 +139,19 @@ def test_teacher_manifest_cannot_mutate_pre_registered_tools(tmp_path):
 def test_launch_constants_are_explicitly_frozen():
     assert (A8_TRAIN_SEED,A8_GROUPS,A8_UPDATES)==(153,20,2)
     assert len(DEV_MANIFEST_SHA256)==64
+
+
+def test_pre_registered_a8_optimizer_question_order_is_pinned():
+    selected={
+        "selected_optimizer_train_questions":40,
+        "selected_ids_sha256":EXPECTED_A8_TRAIN_SELECTION_SHA256,
+    }
+    assert_exact_preregistered_optimizer_selection(selected)
+    with pytest.raises(ValueError,match="question order drift"):
+        assert_exact_preregistered_optimizer_selection({
+            **selected,"selected_ids_sha256":"0"*64,
+        })
+    with pytest.raises(ValueError,match="optimizer count drift"):
+        assert_exact_preregistered_optimizer_selection({
+            **selected,"selected_optimizer_train_questions":41,
+        })
