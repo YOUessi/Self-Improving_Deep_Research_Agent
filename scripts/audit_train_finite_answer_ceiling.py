@@ -113,7 +113,7 @@ def audit(data:Path,out:Path,*,proposer:str="v4")->dict:
             "Finish choices cannot be learned solely by choice-logit updates."
         ),
     }
-    out.parent.mkdir(parents=True,exist_ok=False)
+    out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(report,indent=2,ensure_ascii=False)+"\n")
     print(json.dumps(report,indent=2,ensure_ascii=False))
     return report
