@@ -566,7 +566,7 @@ def main():
         x.add_argument("--max-steps",type=int,default=6)
         x.add_argument("--max-tool-calls",type=int,default=5)
         x.add_argument("--max-context",type=int,default=2048)
-        x.add_argument("--answer-proposer",choices=["legacy","v2","v3","v4"],
+        x.add_argument("--answer-proposer",choices=["legacy","v2","v3","v4","v5"],
                        default="legacy",
                        help="Non-oracle lexical candidate catalog (frozen for A/B)")
     t.add_argument("--dev-manifest",required=True,type=Path)

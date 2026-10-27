@@ -23,6 +23,7 @@ from sidra.schema import Action
 from sidra.candidate_proposer import candidate_spans_v2
 from sidra.bridge import bridge_candidates
 from sidra.action_prior import action_logit_biases
+from sidra.finish_candidates_v5 import visible_finish_options
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,8 @@ class FiniteActionConfig:
             raise ValueError("invalid finite-action context limits")
         if self.max_text_candidates < 1:
             raise ValueError("invalid answer-candidate limit")
-        if self.answer_proposer not in {"legacy","v2","v3","v4"}:
-            raise ValueError("unknown answer proposer; use legacy, v2, v3 or v4")
+        if self.answer_proposer not in {"legacy","v2","v3","v4","v5"}:
+            raise ValueError("unknown answer proposer; use legacy, v2, v3, v4 or v5")
 
 
 _STOP = frozenset({"The","A","An","In","On","This","That","Its","His",
@@ -132,7 +133,7 @@ def build_legal_actions(question:str,observations:list[dict],
     else:
         # Second-hop expansion is strictly from observed text and snippet titles.
         latest_read=list(read.values())[-2:]
-        if cfg.answer_proposer=="v4" and latest_read:
+        if cfg.answer_proposer in {"v4","v5"} and latest_read:
             # Rank bridge queries ONLY using actually read text and the
             # question, never gold or unretrieved corpus documents.
             last=latest_read[-1]
@@ -166,19 +167,27 @@ def build_legal_actions(question:str,observations:list[dict],
         # been ACTUALLY read before producing a factual answer. This is a
         # structural, observation-only rule, not a prediction of gold support.
         # Its mask changes the policy class and must be A/B evaluated separately.
-        finish_allowed=(cfg.answer_proposer not in {"v3","v4"} or len(read)>=2)
-        citations=(tuple(read.keys()) if cfg.answer_proposer in {"v3","v4"}
+        finish_allowed=(cfg.answer_proposer not in {"v3","v4","v5"} or len(read)>=2)
+        citations=(tuple(read.keys()) if cfg.answer_proposer in {"v3","v4","v5"}
                    else tuple(read.keys())[-3:])
         # V2/V3 share the nonoracle lexical answer proposer. V3 differs only
         # by the structural evidence gate, complete visible citation set, and
         # preserved answer-choice capacity under max_candidates.
-        proposer=(candidate_spans_v2 if cfg.answer_proposer in {"v2","v3","v4"}
-                  else _candidate_spans)
         if finish_allowed:
-            for o in reversed(visible[-2:]):
-                for a in proposer(str(o.get("text","")),question,
-                                  cfg.max_text_candidates):
-                    actions.append(Action(kind="finish",answer=a,citations=citations))
+            if cfg.answer_proposer=="v5":
+                # Nonoracle V5 interleaves actual READ sources and presents
+                # polar 'yes'/'no' alternatives, never the gold direction.
+                for answer in visible_finish_options(
+                        question,visible,limit=min(8,cfg.max_candidates-1)):
+                    actions.append(Action(kind="finish",answer=answer,
+                                          citations=citations))
+            else:
+                proposer=(candidate_spans_v2 if cfg.answer_proposer in {"v2","v3","v4"}
+                          else _candidate_spans)
+                for o in reversed(visible[-2:]):
+                    for a in proposer(str(o.get("text","")),question,
+                                      cfg.max_text_candidates):
+                        actions.append(Action(kind="finish",answer=a,citations=citations))
     # Abstain is always legal; a model cannot cite without reading.
     actions.append(Action(kind="finish",answer="",citations=()))
     # Keep stable order with deduplication, including the mandatory abstain.
@@ -188,7 +197,28 @@ def build_legal_actions(question:str,observations:list[dict],
         if key not in unique:
             unique.add(key)
             result.append(a)
-    if cfg.answer_proposer in {"v3","v4"}:
+    if cfg.answer_proposer=="v5":
+        # There are at most TEN unique action ID tokens ('0'..'9'); do not
+        # change this digit-token contract to squeeze in more answers.
+        #
+        # V5 prioritizes correct answer REPRESENTABILITY without blocking all
+        # research: reserve up to two unread READs and one bridge SEARCH while
+        # tools are still available; offer up to 8 nonoracle evidence-derived
+        # Finish answers when no tools are allowed, with abstain always last.
+        #
+        # V4 deliberately remains byte-for-byte in its original branch below,
+        # permitting a causal same-checkpoint V4 vs V5 policy-class ablation.
+        budget=cfg.max_candidates-1
+        factual=[a for a in result if a.kind=="finish" and a.answer]
+        read_actions=[a for a in result if a.kind=="read"]
+        search_actions=[a for a in result if a.kind=="search"]
+        reserved_reads=read_actions[:2]
+        reserved_search=search_actions[:1]
+        tools=(reserved_reads+reserved_search)[:budget]
+        answer_capacity=min(8,budget-len(tools))
+        finish=factual[:answer_capacity]
+        result=tools+finish+[Action(kind="finish",answer="",citations=())]
+    elif cfg.answer_proposer in {"v3","v4"}:
         # Old catalog truncated its tail before the model saw any FINISH
         # candidates. Reserve space for up to four fact-bearing options,
         # without ever admitting an unseen document or an illegal tool action.
@@ -349,7 +379,7 @@ class FiniteActionPolicy:
         prompt=action_prompt(self.tokenizer,question,observations,remaining,
                              candidates,cfg=self.cfg)
         prior=(action_logit_biases(question,observations,candidates)
-               if self.cfg.answer_proposer=="v4" else None)
+               if self.cfg.answer_proposer in {"v4","v5"} else None)
         self.model.eval()  # disable LoRA dropout for exact pre-update re-scoring
         device=self.model.device
         self.model_calls+=1
