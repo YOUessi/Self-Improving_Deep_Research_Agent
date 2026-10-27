@@ -161,3 +161,59 @@ def test_duplicate_read_does_not_fabricate_more_progress():
     t=derive_evidence_state(Q,[SEARCH,READ_A,READ_A])
     assert s.potential==t.potential
     assert t.read_ids==s.read_ids
+
+
+def test_v2_requires_question_anchored_chain_not_any_extra_read():
+    irrelevant={
+        "kind":"read","doc_id":"d","title":"Unrelated Castle",
+        "text":"An unrelated castle is a historic stone monument.",
+    }
+    start=derive_evidence_state(Q,[SEARCH],version="v2")
+    first=derive_evidence_state(Q,[SEARCH,READ_A],version="v2")
+    distractor=derive_evidence_state(Q,[SEARCH,READ_A,irrelevant],version="v2")
+    true_second=derive_evidence_state(Q,[SEARCH,READ_A,READ_B],version="v2")
+    assert start.version=="v2" and start.anchored_read_ids==()
+    assert first.anchored_read_ids==("a",)
+    assert distractor.anchored_linked_pairs==()
+    assert distractor.potential==first.potential  # no false read-count progress
+    assert true_second.anchored_linked_pairs==(("a","b"),)
+    assert true_second.potential>first.potential
+    assert true_second.public_summary()["question_anchored_bridge_pairs"]==1
+
+
+def test_v2_observed_link_prefers_actual_bridge_over_distractor():
+    before=derive_evidence_state(Q,[SEARCH,READ_A],version="v2")
+    candidate_link=Action("read",doc_id="b")
+    distractor=Action("read",doc_id="d")
+    assert before.action_biases([candidate_link])[0]>before.action_biases([distractor])[0]
+    after=derive_evidence_state(Q,[SEARCH,READ_A,READ_B],version="v2")
+    right=Action("finish",answer="Coastal Province",citations=("a","b"))
+    wrong=Action("finish",answer="Unrelated Castle",citations=("a","b"))
+    assert after.action_biases([right])[0]>after.action_biases([wrong])[0]
+    with pytest.raises(ValueError,match="version"):
+        derive_evidence_state(Q,[SEARCH],version="V9")
+
+
+def test_v2_one_token_normalizer_uses_exact_new_logits():
+    torch=pytest.importorskip("torch")
+    model=ToyModel(torch)
+    tok=ToyTokenizer()
+    policy=FiniteActionPolicy(
+        model,tok,seed=153,
+        cfg=FiniteActionConfig(answer_proposer="v4",evidence_state_mode="v2"),
+        max_tool_calls=5)
+    action=policy.decide(Q,[SEARCH,READ_A,READ_B],remaining=1)
+    sample=policy.samples[-1]
+    assert sample["evidence_state"]["state_version"]=="v2"
+    assert sample["evidence_state"]["question_anchored_bridge_pairs"]==1
+    terms=[
+        logprob_of_action(model,sample["prompt_ids"],
+                          sample["legal_choice_token_ids"],i,
+                          logit_biases=sample["action_logit_biases"])
+        for i in range(sample["num_legal_actions"])
+    ]
+    logits=torch.stack(terms)
+    assert torch.exp(logits).sum().item()==pytest.approx(1,abs=1e-6)
+    assert logits[sample["selected_index"]].item()==pytest.approx(
+        sample["sampled_logprob"],abs=1e-6)
+    assert action.to_dict() in sample["legal_actions"]
