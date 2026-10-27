@@ -31,7 +31,9 @@ def digest(path:Path)->str:
     return h.hexdigest()
 
 
-def audit(data:Path,rollouts:Path,out:Path, *,expected_generations:int=4)->dict:
+def audit(data:Path,rollouts:Path,out:Path, *,expected_generations:int=4,
+          state_version:str="v1")->dict:
+    if state_version not in {"v1","v2"}:raise ValueError("unknown state version")
     if out.exists():raise FileExistsError(out)
     if data.name!="converted" or not data.parent.name.startswith("train"):
         raise ValueError("original TRAIN-only data required")
@@ -59,7 +61,7 @@ def audit(data:Path,rollouts:Path,out:Path, *,expected_generations:int=4)->dict:
         if len(episodes)!=expected_generations:
             raise ValueError("incomplete real TRAIN sibling group")
         q=qmap[qid]
-        report=assign_evidence_state_credit(episodes,q)
+        report=assign_evidence_state_credit(episodes,q,state_version=state_version)
         credited+=report["nonzero_optimizer_action_advantages"]
         for ep in episodes:
             steps=ep["trace"]["steps"]
@@ -83,6 +85,7 @@ def audit(data:Path,rollouts:Path,out:Path, *,expected_generations:int=4)->dict:
                 total+=1
     report={
         "stage":"M8_REAL_TRAIN_ONPOLICY_ROLLOUT_OBSERVABLE_STATE_PROXY_AUDIT",
+        "state_version":state_version,
         "original_TRAIN_question_sha256":digest(data/"questions.jsonl"),
         "real_saved_rollout_sha256":digest(rollouts),
         "episodes":len(rows),"sibling_groups":len(grouped),
@@ -112,8 +115,10 @@ def main():
     a.add_argument("--train-data",type=Path,required=True)
     a.add_argument("--rollouts",type=Path,required=True)
     a.add_argument("--out",type=Path,required=True)
+    a.add_argument("--state-version",choices=("v1","v2"),default="v1")
     s=a.parse_args()
-    print(json.dumps(audit(s.train_data,s.rollouts,s.out),indent=2))
+    print(json.dumps(audit(s.train_data,s.rollouts,s.out,
+                           state_version=s.state_version),indent=2))
 
 
 if __name__=="__main__":
