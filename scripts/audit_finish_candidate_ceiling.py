@@ -97,7 +97,7 @@ def diagnose(pilot_data: Path, out: Path, *, proposer: str = "v4") -> dict:
         "partition": "DEV pilot ONLY; gold read by posthoc evaluator, not model",
         "n": n,
         "proposer_version": proposer,
-        "max_catalog_answers": 4,
+        "max_catalog_answers": 8 if proposer=="v5" else 4,
         "answer_visible_in_oracle_read_count": sum(r["answer_occurs_in_read_text"]
                                                     for r in rows),
         "correct_answer_available_as_finite_finish_count": sum(
@@ -128,7 +128,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--proposer", choices=["v2","v3","v4"], default="v4")
+    parser.add_argument("--proposer", choices=["v2","v3","v4","v5"], default="v4")
     a = parser.parse_args()
     print(json.dumps(diagnose(a.pilot, a.out, proposer=a.proposer), indent=2))
 
