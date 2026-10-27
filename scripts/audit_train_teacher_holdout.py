@@ -71,7 +71,8 @@ def audit_holdout(before:Path,after:Path,dataset:Path,
             raise ValueError(f"mismatched holdout paired policy at {k}")
     p=_check_finite_companion(before,after)
     if (p.get("kind")!="finite_constrained_categorical_agent"
-        or p.get("answer_proposer")!="v3"
+        or p.get("answer_proposer") not in {"v3","v4"}
+        or p.get("answer_proposer")!=tr.get("answer_proposer")
         or p.get("selection_mode")!="sample"
         or p.get("old_adapter_sha256")!=tr.get("old_adapter_sha256")
         or p.get("new_adapter_sha256")!=tr.get("new_adapter_sha256")):
