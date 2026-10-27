@@ -18,10 +18,13 @@ def main():
     p.add_argument("--prior-e026-rows",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
     p.add_argument("--seed",type=int,default=2029)
+    p.add_argument("--prior-train-rows",type=Path,action="append",default=[],
+                   help="Repeat for all known SFT actions/online RL TRAIN rollouts")
     args=p.parse_args()
     result=freeze_blind_packet(
         dataset=args.dataset,original_train=args.original_train,
-        prior_e026_rows=args.prior_e026_rows,out=args.out,seed=args.seed)
+        prior_e026_rows=args.prior_e026_rows,out=args.out,seed=args.seed,
+        prior_train_action_files=tuple(args.prior_train_rows))
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 
