@@ -259,3 +259,18 @@ Use one entry for every meaningful failure or design risk. Do not delete failed 
 
 - **Observed:** a one-line shell launcher placed `{echo` after `||`, causing a shell syntax error before any Agent evaluation began; no result directories were written.
 - **Fix:** corrected to `|| { echo ...; ...; }`, pinned canonical GitHub SHA, ran the paired same-vLLM stop-vs-replay evaluation with unique output directories. Preserve original launch error in remote process history.
+
+
+## P-035 — 72 actual TRAIN Solver episodes answer correctly without complete supporting citations (OPEN, 2026-10-27)
+
+- **Real-model observation:** three independent frozen original TRAIN cohorts ×24 each, Qwen3-0.6B + M5 STOP LoRA, recorded live vLLM-constrained Search/Read/Finish. `src/sidra/rsi_solver_campaign_scorecard.py` independently replayed 72/72 real SearchAgent/BM25/model prompt/action/seed/token transcripts against canonical TRAIN evidence. Correct original TRAIN answer **17/72**, STRICT full cited gold support **0/72**, mean gold-support actually READ **0.298611**; tier breakdown direct 11/24, bridge 5/24, hard 1/24 correct; strict 0 for every tier.
+- **Cause/interpretation:** answering from incomplete search evidence is not verified multi-hop reasoning. Support-exposure failure is concrete; the specific causal model mechanism still requires controlled counterfactual evaluation.
+- **Safety validity:** checkpoint file SHA on Tang matches manifest `44e559a3…`, but serving origin cannot be cryptographically established. There is only ONE trajectory per question and constrained vLLM decoding has no matched token log-probs for a genuine online GRPO update. **Do not promote, train from these replay traces as if on-policy, or claim an RSI generation.**
+- **Next:** read/cite planner must use only observed evidence and obey original tool budget; verified experiments must evaluate strict sentence-level support, not only answer EM. For real RL require multiple fresh rollouts per question, matched sampling/learning policy probabilities, checkpoint lineage and independent multi-seed testing.
+- **Evidence:** `docs/M7C_E028_REAL72_SOLVER_CAMPAIGN_EVIDENCE_GAP_20261027.md`; Tang `~/experiments/sidra_rsi_m7/reports/E028_real72_independent_campaign_scorecard_69098758.json`; CPU **208 passed**, GitHub CI success at `69098758c2dfecfd4230021ae1b3a61b7ef1fb70`. Sealed final-B160 not read.
+
+## P-036 — E028 CPU audit launcher lacked PYTHONPATH and full CLI arguments (RESOLVED, 2026-10-27)
+
+- **Observed:** first CPU test launch from unpacked GitHub checkout used `python3 -m pytest -q` without `PYTHONPATH=src`, raising `ModuleNotFoundError: sidra` before tests. Later shell split `--pack/--run/--out` arguments onto separate lines without continuations and `argparse` rejected the invocation before creating report output.
+- **Fix:** use `PYTHONPATH=src python3 -m pytest -q` (189 existing E027 tests, then 208 with E028); build a complete single-command invocation of `audit_rsi_solver_campaign.py` with ALL three `--pack` and `--run` paths and create-only `--out`.
+- **Verification:** 208/208 passed on current E028 source, all 72 real saved model episodes independently audited and one new result file created. Initial failures are retained in remote process logs and reported in the E028 study; no original datasets, other branches, model weights or GPU processes were changed.
