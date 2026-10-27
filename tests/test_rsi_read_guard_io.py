@@ -5,6 +5,7 @@ import json
 import pytest
 
 from sidra.agent import AgentConfig, SearchAgent
+from sidra.schema import AgentTrace
 from sidra.rsi_model_io_audit import audit_model_action_io
 from sidra.rsi_read_before_finish import ObservedReadBeforeFinishPolicy
 from sidra.rsi_trace_audit import audit_tool_trace
@@ -41,6 +42,9 @@ def treated_case():
     cfg = AgentConfig(max_steps=6, max_tool_calls=5, search_top_k=3)
     guard = ObservedReadBeforeFinishPolicy(BasicFakePolicy())
     trace = SearchAgent(make_docs(), guard, cfg).run(question())
+    # Production model/tool transcripts are roundtripped through JSONL,
+    # which converts tuple citation fields to lists before auditing.
+    trace = AgentTrace(**json.loads(json.dumps(trace.as_dict())))
     assert trace.termination == "finish"
     assert trace.read_calls == 2
     return trace, cfg, recorded_model_calls(trace, cfg)
@@ -107,6 +111,7 @@ def test_guard_and_model_io_tampering_fails_closed(tamper, expected):
 def test_legacy_true_model_action_sequence_still_passes_unchanged():
     cfg = AgentConfig(max_steps=6, max_tool_calls=5, search_top_k=3)
     trace = SearchAgent(make_docs(), BasicFakePolicy(), cfg).run(question())
+    trace = AgentTrace(**json.loads(json.dumps(trace.as_dict())))
     assert trace.read_calls == 1
     io = recorded_model_calls(trace, cfg)
     result = audit_model_action_io([trace], io, seed=43, config=cfg)
