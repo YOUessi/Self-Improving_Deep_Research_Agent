@@ -137,7 +137,7 @@ def test_v4_tampered_bias_refused_before_any_optimizer_step():
                               cfg=FiniteActionConfig(answer_proposer="v4"))
     policy.decide(QUESTION,OBS,remaining=4)
     sample=dict(policy.samples[-1])
-    sample["action_logit_biases"]=[x + (3.0 if i==0 else 0.0)
+    sample["action_logit_biases"]=[x + (1.0 if i==0 else 0.0)
                                   for i,x in enumerate(sample["action_logit_biases"])]
     before=float(model.weight.detach())
     with pytest.raises(RuntimeError,match="distribution mismatch"):
