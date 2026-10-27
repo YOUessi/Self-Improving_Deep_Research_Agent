@@ -44,3 +44,12 @@ When the competing vLLM workload terminates naturally, re-check both process own
 Only after real completion compare same-policy arms on frozen internal TRAIN64 (seed171) and viewed DEV32 (seeds151/157) with clustered paired intervals, QA EM, strict original support, all tool costs. The TRAIN64 is **not externally independent**, the A8 hybrid is **not pure GRPO**, and a zero/negative QA delta cannot be reported as a training gain.
 
 No final-B160, eval-A64, user-private data, model weights or raw QA copied to GitHub.
+
+
+## Follow-up: immutable 40-question optimizer selection pin
+
+The first preflight reported the selected 40-question sequence SHA but did not reject a different **still-TRAIN-only** optimizer subset if later source code changed the deterministic selection function. Added `EXPECTED_A8_TRAIN_SELECTION_SHA256` and `assert_exact_preregistered_optimizer_selection()`, which now **fail closed** if either the number or SHA of the actual ordered A8 optimization tasks differs. Regression tests explicitly substitute a new (otherwise legal) digest and a wrong count. The previous TRAIN64/DEV/teacher isolation checks still run.
+
+Re-tested after this guard using newest pinned source **`7ddb6d8e3ffab7b4afe4d4cab717c147d3645aab`** on Tang: **242/242 CPU tests passed (2.13s)**; reran the complete **real** original TRAIN1024+teacher+frozen TRAIN64+parent adapter CPU preflight. Result **`CPU_INPUT_GATE_PASS_GPU_BUSY`**, selection SHA `449d09935e9dee7f22e7fb1bafb77a94346c759c81600bed6c23e0358034184c` verified against the hard-coded pin, selected/frozen overlap **0** and two foreign GPU workers detected. No GPU model launch, no optimizer step, no QA promotion, no final-B160.
+
+Proof log `~/experiments/sidra_m7/logs/M7A10_CPU_TEST_7ddb6d8e3ffab7b4afe4d4cab717c147d3645aab.log`; preflight `~/experiments/sidra_m7/results/M7A10_A8_PREFLIGHT_7ddb6d8e3ffab7b4afe4d4cab717c147d3645aab.json`. Resource gate remains strictly non-preemptive; the old A8 training protocol remains intact.
