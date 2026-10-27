@@ -103,7 +103,7 @@ def test_clustered_bootstrap_two_seeds_are_two_not_four_questions(tmp_path):
 
 @pytest.mark.parametrize("case,match",[
     ("drift","drift"),
-    ("leak","unsafe"),
+    ("leak","trained_on_eval_gold"),
     ("sealed","sealed"),
     ("train","DEV-only"),
 ])
