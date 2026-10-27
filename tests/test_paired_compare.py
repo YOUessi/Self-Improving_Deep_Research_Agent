@@ -38,3 +38,22 @@ def test_mismatched_question_sets_rejected(tmp_path):
     write(b,["a"],[1]);write(t,["b"],[1])
     with pytest.raises(ValueError,match="identical"):
         compare(b,t,tmp_path/"out.json",bootstrap=20)
+
+
+def test_paired_cli_accepts_seed_and_bootstrap(monkeypatch,tmp_path):
+    import sys
+    from scripts.paired_compare import main
+    original=tmp_path/"base.jsonl"
+    updated=tmp_path/"updated.jsonl"
+    write(original,["a","b","c"],[0,1,0])
+    write(updated,["a","b","c"],[1,1,0])
+    output=tmp_path/"audited.json"
+    monkeypatch.setattr(sys,"argv",[
+        "paired_compare.py","--baseline",str(original),
+        "--treatment",str(updated),"--out",str(output),
+        "--seed","817","--bootstrap","200",
+    ])
+    main()
+    result=json.loads(output.read_text())
+    assert result["seed"]==817 and result["bootstrap_samples"]==200
+    assert result["metrics"]["verified_success"]["delta_mean"]>0

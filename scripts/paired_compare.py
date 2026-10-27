@@ -77,8 +77,15 @@ def main():
     p.add_argument("--baseline",required=True,type=Path)
     p.add_argument("--treatment",required=True,type=Path)
     p.add_argument("--out",required=True,type=Path)
+    p.add_argument("--seed",type=int,default=1307,
+                   help="Deterministic bootstrap RNG seed; record for audit replay")
+    p.add_argument("--bootstrap",type=int,default=5000,
+                   help="Number of paired bootstrap resamples")
     a=p.parse_args()
-    print(json.dumps(compare(a.baseline,a.treatment,a.out),indent=2))
+    if a.bootstrap<1:
+        p.error("--bootstrap must be positive")
+    print(json.dumps(compare(a.baseline,a.treatment,a.out,
+                             seed=a.seed,bootstrap=a.bootstrap),indent=2))
 
 
 if __name__=="__main__":
