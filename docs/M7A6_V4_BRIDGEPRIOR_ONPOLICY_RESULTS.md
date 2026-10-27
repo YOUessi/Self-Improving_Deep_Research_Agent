@@ -84,3 +84,8 @@ Posthoc v4 original-TRAIN audit: `~/experiments/sidra_m7/results/v4_BRIDGEPRIOR_
 4. Never put hidden gold into model prompts, candidate catalogs, logit prior, normal search tool, or proposed unseen-document URLs. Never open the sealed final-B160 for tuning; never commit weight files, source benchmark data, local private paths beyond generic experiment manifests, or secrets. No GPU preemption.
 
 **Summary decision: V4 bridge/query and observation prior have been implemented and trained with honest, probability-matched online rollouts; evaluation shows better evidence reading but no externally credible answer/citation gain. Keep PR draft and model unpromoted.**
+
+
+### Reproducible CLI audit follow-up (post-experiment)
+
+The paired comparison helper originally exposed `seed` and `bootstrap` only in its Python function, not the terminal CLI; the attempted CLI audit failed before writing a TRAIN-heldout report (DEV audit was unaffected). Patched `scripts/paired_compare.py` so `--seed` and `--bootstrap` are explicit, added a CLI regression test, and ran the entire pinned test suite on Tang at **`eb6bceb961df226027d87c59f8e865643513790f`: 180/180 passed** (`~/experiments/sidra_m7/logs/m7a6_cpu_eb6bceb9.log`). The new code changes **only offline audit CLI and tests**; it does not alter the already evaluated `61703c75` model policy, training checkpoints, or any benchmark results.
