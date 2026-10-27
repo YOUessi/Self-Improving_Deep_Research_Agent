@@ -19,7 +19,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from sidra.agent import AgentConfig,SearchAgent
-from sidra.experiment import sha256_file
+from sidra.experiment import sha256_file,git_sha
 from sidra.io import iter_jsonl,save_jsonl,load_dataset
 from sidra.retrieval import BM25Index
 from sidra.rsi_trace_audit import audit_tool_trace
@@ -125,9 +125,6 @@ def prepare_solver_pack(train_documents:Path,campaign:Path,cohort:int,
         raise ValueError("canonical TRAIN documents checksum changed")
     docs=[Document.from_dict(x) for x in _objects(train_documents)]
     projected=_make_projection(docs,prompts,by_id)
-    if any(orig in json.dumps([asdict(d) for d in projected])
-           for orig in by_id.values() if False):
-        raise AssertionError("unreachable")
     out.mkdir(parents=True,exist_ok=False)
     save_jsonl(out/"SOLVER_INPUT.jsonl",prompts)
     save_jsonl(out/"SOLVER_DOCUMENTS.jsonl",[asdict(d) for d in projected])
@@ -208,12 +205,15 @@ def run_real_solver(pack:Path,out:Path,*,endpoint:str,model:str,
                             "calls":policy.action_io[start:]})
         print("SOLVER",ix+1,"/",len(prompts),"termination",trace.termination,
               "tool_calls",trace.tool_calls,flush=True)
+    if any(not item["calls"] for item in model_calls):
+        raise RuntimeError("no actual completed model response for at least one Solver task")
     out.mkdir(parents=True,exist_ok=False)
     save_jsonl(out/"SOLVER_TRACES.jsonl",traces)
     save_jsonl(out/"MODEL_ACTION_IO.jsonl",model_calls)
     report={
         "stage":"actual_model_solver_tool_rollouts_NOT_training",
         "source_git_sha":source_sha,
+        "solver_runtime_code_git_sha":git_sha(),
         "public_solver_pack_sha256":sha256_file(pack/"SOLVER_PACK_MANIFEST.json"),
         "cohort":public["cohort"],
         "n_episodes":len(traces),
@@ -273,6 +273,7 @@ def audit_solver_run(train_data:Path,campaign:Path,pack:Path,run:Path,
     traces=_objects(run/"SOLVER_TRACES.jsonl")
     io=_objects(run/"MODEL_ACTION_IO.jsonl")
     if (len(traces)!=len(prompts) or len(io)!=len(prompts)
+        or any(not isinstance(x.get("calls"),list) or not x["calls"] for x in io)
         or len({t["question_id"] for t in traces})!=len(traces)
         or [x["challenge_id"] for x in io]!=[x["challenge_id"] for x in prompts]
         or {t["question_id"] for t in traces}!={x["challenge_id"] for x in prompts}):
