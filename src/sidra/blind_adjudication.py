@@ -39,7 +39,8 @@ def _digest(s:str)->str:
 
 def freeze_blind_packet(*,dataset:Path,original_train:Path,
                         prior_e026_rows:Path,out:Path,seed:int=2029,
-                        bridge_count:int=48,comparison_count:int=16)->dict:
+                        bridge_count:int=48,comparison_count:int=16,
+                        prior_train_action_files:tuple[Path,...]=())->dict:
     if out.exists():raise FileExistsError(out)
     if bridge_count<=0 or comparison_count<=0 or any(
         n%2 for n in (bridge_count,comparison_count)):
@@ -65,6 +66,26 @@ def freeze_blind_packet(*,dataset:Path,original_train:Path,
     exclude={str(x["question_id"]) for x in e026}
     if len(exclude)!=12 or not exclude<=set(qmap):
         raise ValueError("unexpected original E-026 question IDs")
+    original_e026_excluded=set(exclude)
+    prior_project_train_ids=set()
+    prior_project_train_digests={}
+    for path in prior_train_action_files:
+        if not path.is_file():raise FileNotFoundError(path)
+        if str(path) in prior_project_train_digests:
+            raise ValueError("duplicate prior project train artifact path")
+        prior_project_train_digests[str(path)]=file_sha256(path)
+        count=0
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():continue
+            row=json.loads(line)
+            qid=row.get("question_id") or row.get("qid") or (
+                (row.get("trace") or {}).get("question_id"))
+            if not isinstance(qid,str) or qid not in qmap:
+                raise ValueError("prior project train artifact includes non-TRAIN or unidentifiable question")
+            prior_project_train_ids.add(qid)
+            count+=1
+        if count==0:raise ValueError("empty prior project train artifact")
+    exclude.update(prior_project_train_ids)
     candidates={"bridge":[],"comparison":[]}
     for qid,src in original_map.items():
         if qid in exclude:continue
@@ -150,7 +171,11 @@ def freeze_blind_packet(*,dataset:Path,original_train:Path,
         "study":"M7_E029_prospective_TRAIN_human_annotation_packet_NOT_ADJUDICATED",
         "cohort":"independent_from_E026_and_disjoint_by_question",
         "split":"train","question_count":len(packets),"unique_question_count":len(set(selection_ids)),
-        "excluded_prior_E026_question_count":len(exclude),
+        "excluded_prior_E026_question_count":len(original_e026_excluded),
+        "prior_known_project_train_question_excluded":len(prior_project_train_ids),
+        "prior_training_artifact_sha256":prior_project_train_digests,
+        "project_train_exclusion_paths_count":len(prior_project_train_digests),
+        "disjoint_from_supplied_prior_train_artifacts_verified":bool(prior_train_action_files),
         "source_type_balance":{"bridge":bridge_count,"comparison":comparison_count},
         "variant_balance_private":{
             "full_sources":sum(x["variant_private"]=="full_sources" for x in registry),
