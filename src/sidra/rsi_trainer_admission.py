@@ -50,6 +50,33 @@ def load_rows(path:Path)->list[dict]:
     return data
 
 
+def frozen_public_dev_ids(manifest_path:Path)->tuple[set[str],str]:
+    """Read ONLY public DEV split IDs, never answer labels or any final-B file.
+
+    Existing frozen M4 manifest has disjoint 'pilot' and 'heldout' ID lists.
+    Reject malformed splits so accidental or adversarial TRAIN/DEV reuse
+    fails before any cohort is processed.
+    """
+    p=str(manifest_path.resolve()).casefold()
+    if any(x in p for x in ("final-b","final_b","b160")):
+        raise ValueError("never inspect the sealed final-B ID/label manifest")
+    manifest=load_object(manifest_path)
+    joined=set()
+    for split in ("pilot","heldout"):
+        row=manifest.get(split)
+        if not isinstance(row,dict):
+            raise ValueError("missing frozen public DEV ID split")
+        ids=row.get("selected_ids")
+        if (not isinstance(ids,list) or not ids
+            or not all(isinstance(q,str) and q for q in ids)
+            or type(row.get("questions")) is not int
+            or len(ids)!=row["questions"] or len(set(ids))!=len(ids)
+            or joined.intersection(ids)):
+            raise ValueError("malformed or overlapping frozen DEV ID split")
+        joined.update(ids)
+    return joined,sha(manifest_path)
+
+
 @dataclass(frozen=True)
 class Cohort:
     queue_dir:Path
@@ -186,6 +213,7 @@ def review_cohort(train_data:Path,cohort:Cohort)->tuple[dict,list[dict]]:
 
 def audit_training_admission(
     train_data:Path,cohorts:list[Cohort],out_dir:Path, *,
+    public_dev_id_manifest:Path,
     near_duplicate_cutoff:float=0.93)->dict:
     """Repeat all source checks before permitting any Solver->Trainer handoff.
 
@@ -203,6 +231,9 @@ def audit_training_admission(
         raise ValueError("only TRAIN questions may enter RSI curator")
     qmap={q.question_id:q for q in questions}
     if len(qmap)!=len(questions):raise ValueError("duplicated TRAIN source IDs")
+    reserved_public_dev_ids,dev_id_sha=frozen_public_dev_ids(public_dev_id_manifest)
+    if set(qmap)&reserved_public_dev_ids:
+        raise ValueError("TRAIN question IDs overlap frozen public DEV IDs")
     manifests=[]
     all_rows=[]
     for c in cohorts:
@@ -235,6 +266,9 @@ def audit_training_admission(
         "source_domain":"original HotpotQA TRAIN converted corpus",
         "train_questions_sha256":sha(train_data/"questions.jsonl"),
         "train_documents_sha256":sha(train_data/"documents.jsonl"),
+        "frozen_public_dev_id_manifest_sha256":dev_id_sha,
+        "frozen_public_dev_id_count":len(reserved_public_dev_ids),
+        "train_ids_disjoint_from_public_dev":True,
         "cohorts":ordered,
         "n_distinct_train_origins":len(all_rows),
         "n_generated_quote_audited":sum(x["quote_valid_n"] for x in manifests),
