@@ -58,13 +58,17 @@ def find_external_gpu_jobs(*,proc_root:Path=Path("/proc"),
             continue
         try:
             comm=(proc/"comm").read_text(encoding="utf-8").strip()
+        except (FileNotFoundError,ProcessLookupError,PermissionError,OSError):
+            # Unreadable ordinary OS processes are not evidence of a GPU
+            # worker, while known GPU launchers must fail closed below.
+            continue
+        try:
             args=(proc/"cmdline").read_bytes().replace(b"\0",b" ").decode(
                 "utf-8",errors="replace")
         except (FileNotFoundError,ProcessLookupError,PermissionError,OSError):
-            # Process may have exited during the check. A live /proc PID with
-            # inaccessible commandline must not be silently treated as safe.
-            if proc.exists():
-                foreign.append({"pid":pid,"kind":"uninspectable_process"})
+            if proc.exists() and comm.casefold().startswith(
+                    ("python","vllm","torchrun","accelerate","deepspeed","ray::")):
+                foreign.append({"pid":pid,"kind":"uninspectable_gpu_launcher"})
             continue
         kind=classify_gpu_process(comm,args)
         if kind:
