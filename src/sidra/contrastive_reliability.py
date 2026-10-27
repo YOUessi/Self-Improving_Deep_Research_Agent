@@ -152,7 +152,11 @@ def compute_diagnostics(
                 "entailment_delta":round(delta,6),
                 "passes_model_necessity":bool(p_full>=entail_cutoff and
                     p_neutral<=ablation_ceiling and delta>=min_drop),
-                "editorial_truth_unchanged":False,
+                # Removing source evidence never changes the external truth
+                # of the proposition; it changes only whether the remaining
+                # quoted premises are sufficient to support the proposition.
+                "source_claim_world_truth_changed":False,
+                "editorial_evidence_label_after_removal":"neutral",
             }
             ablations.append(ablation)
         diagnostics.append({
