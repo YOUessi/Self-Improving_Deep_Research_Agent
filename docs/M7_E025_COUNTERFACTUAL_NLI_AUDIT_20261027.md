@@ -63,11 +63,11 @@ PYTHONPATH=src:. ~/projects/CodeRL-Lab/.venv/bin/python scripts/m7_counterfactua
  --original-train ~/experiments/sidra_m4/data/train_oracle1024_seed43/original_train_subset.json \
  --rollouts ~/experiments/sidra_m6/results/real_train_rollouts12x4_stop/rollouts_train.jsonl \
  --rollouts ~/experiments/sidra_m6/results/train_rollout_io8x4/rollouts_train.jsonl \
- --model ~/ .cache/huggingface/hub/models--MoritzLaurer--mDeBERTa-v3-base-mnli-xnli/snapshots/<SNAPSHOT> \
+ --model ~/.cache/huggingface/hub/models--MoritzLaurer--mDeBERTa-v3-base-mnli-xnli/snapshots/8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c \
  --out <NEW_NONEXISTENT_OUTPUT_DIRECTORY> --bootstrap 5000
 ```
 
-**NB:** replace the illustrative model path placeholder with the actual cached snapshot path **without whitespace** (`~/.cache/...`). The tested absolute snapshot on Tang is `/home/you/.cache/huggingface/hub/models--MoritzLaurer--mDeBERTa-v3-base-mnli-xnli/snapshots/8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c`.
+**NB:** The command pins the tested cached snapshot on Tang. On any other authorized machine, substitute its own local cache path; do not enable downloads for this replay.
 
 Immutable experimental output: `~/experiments/sidra_m7_evidence_run4/results/train80_mdeberta_loco_20261027/{summary.json,train_only_per_episode.jsonl}`; raw console log `~/experiments/sidra_m7_evidence_run4/logs/train80_mdeberta_loco_20261027.log`. Files include episode IDs and all per-citation ablated model probabilities for auditing. **No output overwritten.**
 
