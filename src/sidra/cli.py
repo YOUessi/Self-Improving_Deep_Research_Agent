@@ -43,6 +43,13 @@ def main() -> None:
     ev.add_argument("--adapter-path", type=str, default=None,
                     help="Load a previously TRAINED local PEFT/LoRA adapter for Transformers evaluation")
     ev.add_argument("--min-citations", type=int, default=2)
+    ev.add_argument("--runtime", choices=["legacy", "langgraph"], default="legacy",
+                    help="Opt-in LangGraph multi-role/Search/READ/Verifier runtime")
+    ev.add_argument("--graph-role-mode", choices=["multi", "single"], default="multi")
+    ev.add_argument("--graph-evidence-state", choices=["off", "v1", "v2", "v3"], default="off",
+                    help="Observable evidence state (experimental; default off)")
+    ev.add_argument("--graph-checkpoint-db", type=Path, default=None,
+                    help="Optional fresh SQLite LangGraph checkpoint DB outside --out")
     ev.add_argument("--min-evidence-reads", type=int, default=2,
                     help="Minimum independent read sources for guarded policy")
     ev.add_argument("--no-revise-citations", action="store_true",
@@ -83,7 +90,7 @@ def main() -> None:
             args.endpoint, args.model, key_env=args.key_env,
             constrain_actions=args.constrain_actions,
             constrain_document_ids=args.constrain_document_ids)
-    if args.policy.startswith("multi-"):
+    if args.policy.startswith("multi-") and args.runtime == "legacy":
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
     elif args.policy in {"grounded-openai", "bridge-grounded-openai"}:
@@ -99,7 +106,11 @@ def main() -> None:
                          search_top_k=args.search_top_k,
                          title_boost=args.title_boost)
     result = evaluate(args.dataset, args.split, policy, args.out, config,
-                      args.limit, args.seed, args.offset)
+                      args.limit, args.seed, args.offset,
+                      runtime=args.runtime, graph_role_mode=args.graph_role_mode,
+                      graph_evidence_state_mode=args.graph_evidence_state,
+                      graph_min_citations=args.min_citations,
+                      graph_checkpoint_db=args.graph_checkpoint_db)
     print(json.dumps(result, indent=2))
     print(f"Results saved in {args.out}")
 

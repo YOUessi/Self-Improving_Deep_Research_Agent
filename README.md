@@ -79,3 +79,27 @@ For review see [M6 execution report](docs/M6_RESULTS_AND_RL_VALIDITY_20261027.md
 ## Safety and data handling
 
 Never commit keys, private user data, model weights, copyrighted benchmark dumps or confidential observations. Tools are bounded: `read` is only permitted on IDs returned by `search`, and `finish` can cite only read IDs. Web search is **not** included in M1; BM25 is over the provided local document corpus. The first version is not a general internet-browsing research agent.
+
+
+## Experimental LangGraph + Multi-Agent + RAG + RL runtime
+
+A research-only, opt-in LangGraph runner is available from branch
+`feat/langgraph-multiagent-rag-rl-integration`. It reuses the real scoped
+BM25 Search/Read tools, source-only verifier, AgentTrace format, and existing
+TRAIN-only GRPO reward/optimizer interfaces; it does not replace or silently
+re-score historical M7/M8 experiments.
+
+```bash
+python -m pip install -e '.[test,graph]'
+sidra eval --dataset examples/fixture --split dev \
+  --policy fixture-multihop --runtime langgraph \
+  --out results/graph_smoke
+# Real model: replace fixture policy/data with --policy multi-openai,
+# --endpoint, --model and a licensed dataset.
+```
+
+For checkpointing, pass `--graph-checkpoint-db /private/path/new-run.sqlite`
+to keep graph state in a *fresh* SQLite database outside the results folder.
+Never treat a checkpoint as exactly-once billing/LLM replay evidence.
+
+Read [the LangGraph integration contract](docs/LANGGRAPH_INTEGRATION_CN.md).
