@@ -219,7 +219,10 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
           max_steps:int=6,max_tool_calls:int=5,
           learning_rate:float=1.0e-5,
           recover_unread_citations:bool=False,
-          max_tool_call_budget:int=0)->dict:
+          max_tool_call_budget:int=0,
+          agent_runtime:str="legacy")->dict:
+    if agent_runtime not in {"legacy", "langgraph"}:
+        raise ValueError("agent_runtime must be legacy or langgraph")
     if out.exists():raise FileExistsError(out)
     if min(max_updates,groups_per_update,generations,max_new_tokens,max_steps,
            max_tool_calls)<1:raise ValueError("invalid training limits")
@@ -254,7 +257,14 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
     random.seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.cuda.reset_peak_memory_stats()
-    runner=SearchAgent(docs,OnPolicyHFAction(model,tokens),cfg)
+    if agent_runtime=="langgraph":
+        from sidra.langgraph_agent import GraphResearchAgent
+        # Preserve OnPolicyHFAction.decide and the original SYSTEM prompt.
+        # LangGraph only controls tool execution; no mismatched role prompts.
+        runner=GraphResearchAgent(docs,OnPolicyHFAction(model,tokens),cfg,
+                                  role_mode="single",evidence_state_mode="off")
+    else:
+        runner=SearchAgent(docs,OnPolicyHFAction(model,tokens),cfg)
     started=time.monotonic()
     records=[]
     summary_updates=[]
@@ -332,6 +342,9 @@ def train(*,data:Path,dev_manifest:Path,model_path:Path,adapter_path:Path,
         "selected_train_questions":[q.question_id for q in eligible],
         "dev_questions_used_as_optimizer_gold":False,
         "split":"train","seed":seed,
+        "agent_runtime":agent_runtime,
+        "langgraph_role_mode":"single" if agent_runtime=="langgraph" else None,
+        "langgraph_evidence_state":"off" if agent_runtime=="langgraph" else None,
         "on_policy_generation_and_loss_match":True,
         "generation_distribution":(
             "Unconstrained full softmax, temp=1 top_p=1 top_k=0, "
@@ -380,6 +393,8 @@ def main():
     p.add_argument("--recover-unread-citations",action="store_true")
     p.add_argument("--max-steps",type=int,default=6)
     p.add_argument("--max-tool-calls",type=int,default=5)
+    p.add_argument("--agent-runtime",choices=["legacy","langgraph"],default="legacy",
+                   help="Opt-in LangGraph runtime with unchanged raw model policy")
     args=p.parse_args()
     train(data=args.train_data,dev_manifest=args.dev_manifest,model_path=args.model,
           adapter_path=args.adapter,out=args.out,seed=args.seed,
@@ -388,7 +403,8 @@ def main():
           max_context_tokens=args.max_context_tokens,
           max_steps=args.max_steps,
           max_tool_calls=args.max_tool_calls,
-          recover_unread_citations=args.recover_unread_citations)
+          recover_unread_citations=args.recover_unread_citations,
+          agent_runtime=args.agent_runtime)
 
 
 if __name__=="__main__":
