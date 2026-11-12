@@ -49,7 +49,12 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
              offset: int = 0, *, runtime: str = "legacy",
              graph_role_mode: str = "multi", graph_evidence_state_mode: str = "off",
              graph_min_citations: int = 2, graph_checkpoint_db: Path | None = None,
-             graph_role_policies: dict | None = None) -> dict:
+             graph_role_policies: dict | None = None,
+             retriever_mode: str = "bm25", embeddings=None,
+             embedding_model_id: str | None = None,
+             retrieval_chunk_size: int = 1200,
+             retrieval_chunk_overlap: int = 120,
+             retrieval_dense_weight: float = 0.5) -> dict:
     if runtime not in {"legacy", "langgraph"}:
         raise ValueError("runtime must be legacy or langgraph")
     if output_dir.exists():
@@ -71,6 +76,18 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
     if not selected:
         raise ValueError(f"No questions in requested split {split}")
     lookup = {d.doc_id: d for d in documents}
+    if retriever_mode == "bm25":
+        if embeddings is not None:
+            raise ValueError("BM25 baseline must not silently accept an embeddings provider")
+        retriever = None
+    else:
+        from sidra.langchain_retrieval import create_retriever
+        retriever = create_retriever(
+            documents, mode=retriever_mode, embeddings=embeddings,
+            title_boost=(config or AgentConfig()).title_boost,
+            chunk_size=retrieval_chunk_size, chunk_overlap=retrieval_chunk_overlap,
+            dense_weight=retrieval_dense_weight,
+        )
     traces, rows, graph_threads = [], [], []
     with ExitStack() as stack:
         if runtime == "langgraph":
@@ -83,12 +100,13 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
             agent = GraphResearchAgent(
                 documents, policy, config, role_mode=graph_role_mode,
                 role_policies=graph_role_policies,
+                retriever=retriever,
                 min_citations=graph_min_citations,
                 evidence_state_mode=graph_evidence_state_mode,
                 checkpointer=saver, thread_namespace=f"eval-{seed}",
             )
         else:
-            agent = SearchAgent(documents, policy, config)
+            agent = SearchAgent(documents, policy, config, retriever=retriever)
         for question in selected:
             trace = agent.run(question)
             traces.append(trace.as_dict())
@@ -116,6 +134,12 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
     manifest = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "agent_runtime": runtime,
+        "retriever_mode": retriever_mode,
+        "retrieval_embedding_model_id": embedding_model_id if retriever_mode != "bm25" else None,
+        "retrieval_chunk_size": retrieval_chunk_size if retriever_mode != "bm25" else None,
+        "retrieval_chunk_overlap": retrieval_chunk_overlap if retriever_mode != "bm25" else None,
+        "retrieval_dense_weight": (retrieval_dense_weight
+                                   if retriever_mode == "hybrid" else None),
         "graph_role_mode": graph_role_mode if runtime == "langgraph" else None,
         "graph_evidence_state_mode": graph_evidence_state_mode if runtime == "langgraph" else None,
         "graph_min_citations": graph_min_citations if runtime == "langgraph" else None,

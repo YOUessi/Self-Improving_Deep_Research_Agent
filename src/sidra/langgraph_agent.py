@@ -73,6 +73,7 @@ class GraphResearchAgent:
         *,
         role_mode: Literal["multi", "single"] = "multi",
         role_policies: Mapping[str, Policy] | None = None,
+        retriever: Any = None,
         min_citations: int = 2,
         evidence_state_mode: Literal["off", "v1", "v2", "v3"] = "off",
         checkpointer: Any = None,
@@ -91,7 +92,8 @@ class GraphResearchAgent:
         if not thread_namespace:
             raise ValueError("thread_namespace required")
         self.docs = {d.doc_id: d for d in documents}
-        self.index = BM25Index(documents, title_boost=(config or AgentConfig()).title_boost)
+        self.index = (retriever if retriever is not None
+                      else BM25Index(documents, title_boost=(config or AgentConfig()).title_boost))
         self.config = config or AgentConfig()
         self.policy = policy
         self.role_policies = dict(role_policies or {})
