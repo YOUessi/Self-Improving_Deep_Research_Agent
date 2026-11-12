@@ -233,3 +233,44 @@ def test_separate_planner_researcher_solver_policies_are_real_handoffs():
     with pytest.raises(ValueError, match="require multi"):
         GraphResearchAgent(docs, fallback, role_mode="single",
                            role_policies={"planner": planner})
+
+
+def test_opt_in_unread_citation_feedback_recovery():
+    docs, q = corpus()
+    policy = ScriptedPolicy([
+        Action("search", query="Explorer Atlas7"),
+        Action("read", doc_id="p"),
+        Action("finish", answer="Quartz9", citations=("r",)),
+        Action("search", query="Region8"),
+        Action("read", doc_id="r"),
+        Action("finish", answer="Quartz9", citations=("p", "r")),
+    ])
+    trace = GraphResearchAgent(
+        docs, policy, AgentConfig(max_steps=7, max_tool_calls=5,
+                                  recover_unread_citations=True),
+        role_mode="multi", min_citations=2,
+    ).run(q)
+    assert trace.termination == "finish"
+    assert trace.tool_calls == 4
+    assert trace.steps[2]["validation_failed"] is True
+    assert trace.steps[2]["observation"]["code"] == "unread_citations"
+    assert "only doc IDs actually READ" in trace.steps[2]["observation"]["instruction"]
+    assert trace.steps[-1]["verification"]["approved"] is True
+    assert set(trace.citations) == {"p", "r"}
+
+
+def test_unread_citation_recovery_respects_step_limit():
+    docs, q = corpus()
+    policy = ScriptedPolicy([
+        Action("search", query="Explorer Atlas7"),
+        Action("read", doc_id="p"),
+        Action("finish", answer="Quartz9", citations=("r",)),
+    ])
+    trace = GraphResearchAgent(
+        docs, policy, AgentConfig(max_steps=3, max_tool_calls=5,
+                                  recover_unread_citations=True),
+        role_mode="multi",
+    ).run(q)
+    assert trace.termination == "error"
+    assert len(trace.steps) == 3
+    assert trace.steps[-1]["verification"]["reason"] == "unread_citations"

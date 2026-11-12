@@ -25,6 +25,8 @@ def main() -> None:
     ev.add_argument("--out", type=Path, required=True)
     ev.add_argument("--max-steps", type=int, default=8)
     ev.add_argument("--max-tool-calls", type=int, default=7)
+    ev.add_argument("--recover-unread-citations", action="store_true",
+                    help="On a non-oracle unread citation validation error, replan within the same step budget")
     ev.add_argument("--search-top-k", type=int, default=3)
     ev.add_argument("--title-boost", type=float, default=0.0,
                     help="Pilot-selected fixed extra BM25 title overlap weight")
@@ -125,7 +127,8 @@ def main() -> None:
     config = AgentConfig(max_steps=args.max_steps,
                          max_tool_calls=args.max_tool_calls,
                          search_top_k=args.search_top_k,
-                         title_boost=args.title_boost)
+                         title_boost=args.title_boost,
+                         recover_unread_citations=args.recover_unread_citations)
     result = evaluate(args.dataset, args.split, policy, args.out, config,
                       args.limit, args.seed, args.offset,
                       runtime=args.runtime, graph_role_mode=args.graph_role_mode,

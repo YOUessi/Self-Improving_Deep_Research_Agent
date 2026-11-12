@@ -335,6 +335,11 @@ class GraphResearchAgent:
                 "kind": "validation_error", "code": reason,
                 "read_doc_ids": list(state["read_ids"]),
                 "unread_citations": unread,
+                "instruction": (
+                    "You may cite only doc IDs actually READ. "
+                    "Search/READ additional documents or finish using only "
+                    "READ citations. Do not invent citations."
+                ),
             }
             return {
                 "observations": [*state["observations"], feedback],

@@ -130,3 +130,19 @@ sidra eval --dataset /path/to/hotpot_dev --split dev \
 不改变底层 Dataset 与 TRAIN-only 权限。不同角色模型的能力不同，
 因此与单模型基线比较时**不能把混合模型提升归因于多 Agent 编排**，
 应在相同模型设置下另外完成角色分工消融。
+
+
+## 8. 真实 Qwen3 负结果与引用恢复门禁
+
+Tang 独立目录在本分支截止提交 483238fe 上运行过已经使用过的 DEV 前四题。
+模型采用缓存的 Qwen3-0.6B-Base 与既有 TRAIN-only Stop-SFT LoRA，参数一致：
+
+- 原 Agent Loop：EM 0/4，严格验证成功 0/4；
+- LangGraph 单策略：EM 0/4，严格验证成功 0/4；
+- LangGraph 多角色：EM 0/4，严格验证成功 0/4；
+- 每题平均模型 3 次、工具 2 次；都在一次 Search + READ 后引用尚未 READ 的文档。
+
+本次新增可选开关 --recover-unread-citations：它对 source-only 引用门禁失败
+提供简明非 Oracle 反馈，消耗当前 Agent Step 并要求模型自行继续 Search/Read。
+开关默认关闭，不改变原评测合同或早前冻结实验证据。
+修复后的新运行必须另行记录，不能拿同一批已见 DEV 反复调参宣称泛化。
