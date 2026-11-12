@@ -103,3 +103,18 @@ to keep graph state in a *fresh* SQLite database outside the results folder.
 Never treat a checkpoint as exactly-once billing/LLM replay evidence.
 
 Read [the LangGraph integration contract](docs/LANGGRAPH_INTEGRATION_CN.md).
+
+
+## LangChain components (experimental, opt-in)
+
+The same LangGraph / legacy runtimes can use LangChain's ChatOpenAI
+and source-scoped BM25 / Dense / Hybrid RRF. The original baseline and
+TRAIN-only GRPO optimizer are unchanged.
+
+```bash
+python -m pip install -e '.[test,graph,langchain]'
+# Offline integration tests, no external embedding or chat API:
+python -m pytest -q tests/test_langchain_integration.py
+```
+
+Read [the detailed Chinese design, CLI commands and research limits](docs/LANGCHAIN_INTEGRATION_CN.md).
