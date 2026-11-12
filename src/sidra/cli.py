@@ -21,10 +21,22 @@ def main() -> None:
     ev.add_argument("--policy", choices=["fixture-multihop", "fixture-onehop", "openai", "transformers", "multi-openai", "multi-transformers", "grounded-openai", "bridge-grounded-openai"], required=True)
     ev.add_argument("--endpoint", help="OpenAI-compatible /v1/chat/completions URL")
     ev.add_argument("--model", help="Model served at --endpoint")
+    ev.add_argument("--model-backend", choices=["native", "langchain"], default="native",
+                    help="Select original model API or LangChain ChatOpenAI adapter")
+    ev.add_argument("--retriever", choices=["bm25", "dense", "hybrid"], default="bm25",
+                    help="Frozen original BM25 or explicit LangChain semantic RAG")
+    ev.add_argument("--embedding-endpoint", help="Explicit /v1 API base for embeddings")
+    ev.add_argument("--embedding-model", help="Explicit provider embedding model ID")
+    ev.add_argument("--embedding-key-env", default="OPENAI_API_KEY")
+    ev.add_argument("--retrieval-chunk-size", type=int, default=1200)
+    ev.add_argument("--retrieval-chunk-overlap", type=int, default=120)
+    ev.add_argument("--retrieval-dense-weight", type=float, default=0.5)
     ev.add_argument("--key-env", default="OPENAI_API_KEY")
     ev.add_argument("--out", type=Path, required=True)
     ev.add_argument("--max-steps", type=int, default=8)
     ev.add_argument("--max-tool-calls", type=int, default=7)
+    ev.add_argument("--recover-unread-citations", action="store_true",
+                    help="On a non-oracle unread citation validation error, replan within the same step budget")
     ev.add_argument("--search-top-k", type=int, default=3)
     ev.add_argument("--title-boost", type=float, default=0.0,
                     help="Pilot-selected fixed extra BM25 title overlap weight")
@@ -43,6 +55,16 @@ def main() -> None:
     ev.add_argument("--adapter-path", type=str, default=None,
                     help="Load a previously TRAINED local PEFT/LoRA adapter for Transformers evaluation")
     ev.add_argument("--min-citations", type=int, default=2)
+    ev.add_argument("--runtime", choices=["legacy", "langgraph"], default="legacy",
+                    help="Opt-in LangGraph multi-role/Search/READ/Verifier runtime")
+    ev.add_argument("--graph-role-mode", choices=["multi", "single"], default="multi")
+    ev.add_argument("--graph-planner-model", type=str)
+    ev.add_argument("--graph-researcher-model", type=str)
+    ev.add_argument("--graph-solver-model", type=str)
+    ev.add_argument("--graph-evidence-state", choices=["off", "v1", "v2", "v3"], default="off",
+                    help="Observable evidence state (experimental; default off)")
+    ev.add_argument("--graph-checkpoint-db", type=Path, default=None,
+                    help="Optional fresh SQLite LangGraph checkpoint DB outside --out")
     ev.add_argument("--min-evidence-reads", type=int, default=2,
                     help="Minimum independent read sources for guarded policy")
     ev.add_argument("--no-revise-citations", action="store_true",
@@ -57,6 +79,14 @@ def main() -> None:
         return
     if args.constrain_document_ids and not args.constrain_actions:
         parser.error("--constrain-document-ids requires --constrain-actions")
+    if args.model_backend == "langchain" and args.policy not in {
+        "openai", "multi-openai", "grounded-openai", "bridge-grounded-openai"
+    }:
+        parser.error("LangChain ChatOpenAI requires an OpenAI-compatible model policy")
+    if args.retriever == "bm25" and (args.embedding_endpoint or args.embedding_model):
+        parser.error("BM25 baseline must not receive embedding provider parameters")
+    if args.retriever != "bm25" and not (args.embedding_endpoint and args.embedding_model):
+        parser.error("dense/hybrid requires explicit --embedding-endpoint and --embedding-model")
     if args.limit < 0 or args.offset < 0:
         parser.error("--limit and --offset must be >= 0")
     if args.adapter_path and args.policy not in {"transformers","multi-transformers"}:
@@ -79,11 +109,49 @@ def main() -> None:
     else:
         if not args.endpoint or not args.model:
             parser.error("--endpoint and --model are required for real LLM evaluation")
-        policy = OpenAICompatiblePolicy(
-            args.endpoint, args.model, key_env=args.key_env,
-            constrain_actions=args.constrain_actions,
-            constrain_document_ids=args.constrain_document_ids)
-    if args.policy.startswith("multi-"):
+        if args.model_backend == "langchain":
+            from sidra.langchain_policy import LangChainChatPolicy
+            policy = LangChainChatPolicy(
+                args.endpoint, args.model, key_env=args.key_env,
+                constrain_actions=args.constrain_actions,
+                constrain_document_ids=args.constrain_document_ids)
+        else:
+            policy = OpenAICompatiblePolicy(
+                args.endpoint, args.model, key_env=args.key_env,
+                constrain_actions=args.constrain_actions,
+                constrain_document_ids=args.constrain_document_ids)
+    graph_role_models = {
+        role: model for role, model in (
+            ("planner", args.graph_planner_model),
+            ("researcher", args.graph_researcher_model),
+            ("solver", args.graph_solver_model),
+        ) if model
+    }
+    if graph_role_models and (args.runtime != "langgraph"
+                              or args.graph_role_mode != "multi"
+                              or args.policy not in {"openai", "multi-openai"}):
+        parser.error("separate graph role models require LangGraph multi with OpenAI policy")
+    graph_role_policies = {}
+    for role, model in graph_role_models.items():
+        if args.model_backend == "langchain":
+            from sidra.langchain_policy import LangChainChatPolicy
+            graph_role_policies[role] = LangChainChatPolicy(
+                args.endpoint, model, key_env=args.key_env,
+                constrain_actions=args.constrain_actions,
+                constrain_document_ids=args.constrain_document_ids)
+        else:
+            graph_role_policies[role] = OpenAICompatiblePolicy(
+                args.endpoint, model, key_env=args.key_env,
+                constrain_actions=args.constrain_actions,
+                constrain_document_ids=args.constrain_document_ids)
+    embeddings = None
+    if args.retriever != "bm25":
+        from sidra.langchain_policy import make_openai_embeddings
+        embeddings = make_openai_embeddings(
+            args.embedding_endpoint, args.embedding_model,
+            key_env=args.embedding_key_env)
+
+    if args.policy.startswith("multi-") and args.runtime == "legacy":
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
     elif args.policy in {"grounded-openai", "bridge-grounded-openai"}:
@@ -97,9 +165,20 @@ def main() -> None:
     config = AgentConfig(max_steps=args.max_steps,
                          max_tool_calls=args.max_tool_calls,
                          search_top_k=args.search_top_k,
-                         title_boost=args.title_boost)
+                         title_boost=args.title_boost,
+                         recover_unread_citations=args.recover_unread_citations)
     result = evaluate(args.dataset, args.split, policy, args.out, config,
-                      args.limit, args.seed, args.offset)
+                      args.limit, args.seed, args.offset,
+                      runtime=args.runtime, graph_role_mode=args.graph_role_mode,
+                      graph_evidence_state_mode=args.graph_evidence_state,
+                      graph_min_citations=args.min_citations,
+                      graph_checkpoint_db=args.graph_checkpoint_db,
+                      graph_role_policies=graph_role_policies,
+                      retriever_mode=args.retriever, embeddings=embeddings,
+                      embedding_model_id=args.embedding_model,
+                      retrieval_chunk_size=args.retrieval_chunk_size,
+                      retrieval_chunk_overlap=args.retrieval_chunk_overlap,
+                      retrieval_dense_weight=args.retrieval_dense_weight)
     print(json.dumps(result, indent=2))
     print(f"Results saved in {args.out}")
 

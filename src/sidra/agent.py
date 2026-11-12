@@ -33,10 +33,12 @@ class AgentConfig:
 
 
 class SearchAgent:
-    def __init__(self, docs: list[Document], policy: Policy, config: AgentConfig | None = None):
+    def __init__(self, docs: list[Document], policy: Policy, config: AgentConfig | None = None,
+                 *, retriever=None):
         self.docs = {d.doc_id: d for d in docs}
         self.config = config or AgentConfig()
-        self.index = BM25Index(docs, title_boost=self.config.title_boost)
+        self.index = (retriever if retriever is not None
+                      else BM25Index(docs, title_boost=self.config.title_boost))
         self.policy = policy
 
     def run(self, question: Question) -> AgentTrace:

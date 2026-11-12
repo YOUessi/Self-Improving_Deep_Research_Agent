@@ -7,6 +7,7 @@ import os
 import re
 import json
 import subprocess
+from contextlib import ExitStack
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,7 +46,26 @@ def git_sha() -> str:
 
 def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
              config: AgentConfig | None = None, limit: int = 0, seed: int = 42,
-             offset: int = 0) -> dict:
+             offset: int = 0, *, runtime: str = "legacy",
+             graph_role_mode: str = "multi", graph_evidence_state_mode: str = "off",
+             graph_min_citations: int = 2, graph_checkpoint_db: Path | None = None,
+             graph_role_policies: dict | None = None,
+             retriever_mode: str = "bm25", embeddings=None,
+             embedding_model_id: str | None = None,
+             retrieval_chunk_size: int = 1200,
+             retrieval_chunk_overlap: int = 120,
+             retrieval_dense_weight: float = 0.5) -> dict:
+    if runtime not in {"legacy", "langgraph"}:
+        raise ValueError("runtime must be legacy or langgraph")
+    if output_dir.exists():
+        raise FileExistsError(output_dir)
+    if graph_checkpoint_db is not None:
+        if runtime != "langgraph":
+            raise ValueError("SQLite checkpoints require --runtime langgraph")
+        if graph_checkpoint_db.exists():
+            raise FileExistsError(graph_checkpoint_db)
+        if graph_checkpoint_db.resolve().is_relative_to(output_dir.resolve()):
+            raise ValueError("checkpoint database must live outside output directory")
     documents, questions = load_dataset(dataset_dir)
     selected = sorted((q for q in questions if q.split == split), key=lambda q: q.question_id)
     if offset < 0:
@@ -55,15 +75,49 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         selected = selected[:limit]
     if not selected:
         raise ValueError(f"No questions in requested split {split}")
-    agent = SearchAgent(documents, policy, config)
     lookup = {d.doc_id: d for d in documents}
-    traces, rows = [], []
-    for question in selected:
-        trace = agent.run(question)
-        traces.append(trace.as_dict())
-        rows.append(score_trace(question, trace, lookup))
+    if retriever_mode == "bm25":
+        if embeddings is not None:
+            raise ValueError("BM25 baseline must not silently accept an embeddings provider")
+        retriever = None
+    else:
+        from sidra.langchain_retrieval import create_retriever
+        retriever = create_retriever(
+            documents, mode=retriever_mode, embeddings=embeddings,
+            title_boost=(config or AgentConfig()).title_boost,
+            chunk_size=retrieval_chunk_size, chunk_overlap=retrieval_chunk_overlap,
+            dense_weight=retrieval_dense_weight,
+        )
+    traces, rows, graph_threads = [], [], []
+    with ExitStack() as stack:
+        if runtime == "langgraph":
+            from sidra.langgraph_agent import GraphResearchAgent
+            saver = None
+            if graph_checkpoint_db is not None:
+                from langgraph.checkpoint.sqlite import SqliteSaver
+                graph_checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
+                saver = stack.enter_context(SqliteSaver.from_conn_string(str(graph_checkpoint_db)))
+            agent = GraphResearchAgent(
+                documents, policy, config, role_mode=graph_role_mode,
+                role_policies=graph_role_policies,
+                retriever=retriever,
+                min_citations=graph_min_citations,
+                evidence_state_mode=graph_evidence_state_mode,
+                checkpointer=saver, thread_namespace=f"eval-{seed}",
+            )
+        else:
+            agent = SearchAgent(documents, policy, config, retriever=retriever)
+        for question in selected:
+            trace = agent.run(question)
+            traces.append(trace.as_dict())
+            rows.append(score_trace(question, trace, lookup))
+            if runtime == "langgraph":
+                graph_threads.append({"question_id": question.question_id,
+                                      "thread_id": agent.last_thread_id})
     output_dir.mkdir(parents=True, exist_ok=False)  # never silently overwrite a prior run
     save_jsonl(output_dir / "traces.jsonl", traces)
+    if runtime == "langgraph":
+        save_jsonl(output_dir / "graph_threads.jsonl", graph_threads)
     save_jsonl(output_dir / "per_example.jsonl", rows)
     summary = summarize(rows)
     fixture_description = (dataset_dir / "README.md").read_text(encoding="utf-8") \
@@ -79,6 +133,22 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         label = "untrained_baseline"
     manifest = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "agent_runtime": runtime,
+        "retriever_mode": retriever_mode,
+        "retrieval_embedding_model_id": embedding_model_id if retriever_mode != "bm25" else None,
+        "retrieval_chunk_size": retrieval_chunk_size if retriever_mode != "bm25" else None,
+        "retrieval_chunk_overlap": retrieval_chunk_overlap if retriever_mode != "bm25" else None,
+        "retrieval_dense_weight": (retrieval_dense_weight
+                                   if retriever_mode == "hybrid" else None),
+        "graph_role_mode": graph_role_mode if runtime == "langgraph" else None,
+        "graph_evidence_state_mode": graph_evidence_state_mode if runtime == "langgraph" else None,
+        "graph_min_citations": graph_min_citations if runtime == "langgraph" else None,
+        "graph_role_models": ({role: getattr(p, "model_name", getattr(p, "model", p.name))
+                              for role, p in (graph_role_policies or {}).items()}
+                              if runtime == "langgraph" else None),
+        "graph_checkpoint_backend": ("sqlite" if graph_checkpoint_db else "none"),
+        "graph_checkpoint_sha256": (sha256_file(graph_checkpoint_db)
+                                   if graph_checkpoint_db else None),
         "stage": label,
         "dataset_dir": str(dataset_dir),
         "data_sha256": {name: sha256_file(dataset_dir / name)
@@ -92,8 +162,11 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         "no_gpu_training_claimed": True,
         "no_weight_updates_in_this_evaluation": True,
         "adapter_path": getattr(policy, "adapter_path", None),
-        "agent_roles": ["planner", "researcher", "solver", "evidence_audit"]
-                       if policy.name.startswith("multi_role_") else ["single_policy"],
+        "agent_roles": (["planner", "researcher", "solver", "source_verifier"]
+                        if runtime == "langgraph" and graph_role_mode == "multi"
+                        else ["single_policy"] if runtime == "langgraph"
+                        else ["planner", "researcher", "solver", "evidence_audit"]
+                        if policy.name.startswith("multi_role_") else ["single_policy"]),
         "minimum_distinct_citations": getattr(policy, "min_citations", None),
         "caution": "Synthetic fixture results cannot show generalization or RSI gains." if synthetic
                     else "This is a pretrained baseline, not post-training or RSI.",
