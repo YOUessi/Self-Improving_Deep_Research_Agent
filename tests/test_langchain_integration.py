@@ -117,7 +117,11 @@ def test_langchain_retrieval_executes_in_real_graph_and_train_scorer(mode):
     assert trace.termination == "finish", trace.error
     assert trace.answer == "Quartz9"
     assert set(trace.citations) == {"p", "r"}
-    assert trace.tool_calls == 4
+    # Dense/Hybrid may expose both valid sources in the first SEARCH.
+    # Unlike fixture/BM25, a second SEARCH is not always necessary.
+    assert trace.read_calls == 2
+    assert trace.search_calls in {1, 2}
+    assert trace.tool_calls == trace.read_calls + trace.search_calls
     reward = score_train_rollout(q, trace, {d.doc_id: d for d in docs},
                                  max_tool_calls=7)
     assert reward.strict_outcome == 1.0
