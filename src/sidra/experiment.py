@@ -48,7 +48,8 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
              config: AgentConfig | None = None, limit: int = 0, seed: int = 42,
              offset: int = 0, *, runtime: str = "legacy",
              graph_role_mode: str = "multi", graph_evidence_state_mode: str = "off",
-             graph_min_citations: int = 2, graph_checkpoint_db: Path | None = None) -> dict:
+             graph_min_citations: int = 2, graph_checkpoint_db: Path | None = None,
+             graph_role_policies: dict | None = None) -> dict:
     if runtime not in {"legacy", "langgraph"}:
         raise ValueError("runtime must be legacy or langgraph")
     if output_dir.exists():
@@ -81,6 +82,7 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
                 saver = stack.enter_context(SqliteSaver.from_conn_string(str(graph_checkpoint_db)))
             agent = GraphResearchAgent(
                 documents, policy, config, role_mode=graph_role_mode,
+                role_policies=graph_role_policies,
                 min_citations=graph_min_citations,
                 evidence_state_mode=graph_evidence_state_mode,
                 checkpointer=saver, thread_namespace=f"eval-{seed}",
@@ -117,6 +119,9 @@ def evaluate(dataset_dir: Path, split: str, policy: Policy, output_dir: Path,
         "graph_role_mode": graph_role_mode if runtime == "langgraph" else None,
         "graph_evidence_state_mode": graph_evidence_state_mode if runtime == "langgraph" else None,
         "graph_min_citations": graph_min_citations if runtime == "langgraph" else None,
+        "graph_role_models": ({role: getattr(p, "model_name", getattr(p, "model", p.name))
+                              for role, p in (graph_role_policies or {}).items()}
+                              if runtime == "langgraph" else None),
         "graph_checkpoint_backend": ("sqlite" if graph_checkpoint_db else "none"),
         "graph_checkpoint_sha256": (sha256_file(graph_checkpoint_db)
                                    if graph_checkpoint_db else None),

@@ -108,3 +108,25 @@ python scripts/train_onpolicy_tool_grpo.py \
 - 还没有 checkpoint 后的精确安全恢复 / provider 幂等。
 - 还没有训练出经过独立评测改善的 Graph Multi-Agent policy。
 - 没有证明有效的多代 RSI；不能从创建新状态图推断自我改进。
+
+
+## 7. 独立模型的 Multi-Agent 角色分配（可选）
+
+默认的三个角色可以共享一个模型；若希望测试独立 Planner/Researcher/Solver
+的协作，可通过下列命令将其分别绑定到不同模型：
+
+~~~bash
+sidra eval --dataset /path/to/hotpot_dev --split dev \
+  --policy multi-openai --endpoint https://YOUR_ENDPOINT/v1/chat/completions \
+  --model DEFAULT_MODEL --runtime langgraph --graph-role-mode multi \
+  --graph-planner-model PLAN_MODEL \
+  --graph-researcher-model RESEARCH_MODEL \
+  --graph-solver-model SOLVER_MODEL \
+  --out /outside_repo/role_split_eval
+~~~
+
+三个模型使用同一受控工具执行环境、GraphState 和权限检查，但有独立 API
+请求/使用量计数；在 manifest 的 graph_role_models 中记录模型归属。
+不改变底层 Dataset 与 TRAIN-only 权限。不同角色模型的能力不同，
+因此与单模型基线比较时**不能把混合模型提升归因于多 Agent 编排**，
+应在相同模型设置下另外完成角色分工消融。

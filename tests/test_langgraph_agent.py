@@ -203,3 +203,33 @@ def test_evidence_state_is_opt_in_and_nonoracle():
     assert summary["state_version"] == "v3"
     assert "gold_answer" not in repr(summary)
     assert summary["warning"].endswith("NOT proven entailment")
+
+
+def test_separate_planner_researcher_solver_policies_are_real_handoffs():
+    docs, q = corpus()
+    # Each logical agent owns its own policy object/model budget; they exchange
+    # only the shared, gold-blind graph state, not the evaluator labels.
+    planner = ScriptedPolicy([Action("search", query="Explorer Atlas7")])
+    researcher = ScriptedPolicy([
+        Action("read", doc_id="p"), Action("search", query="Region8"),
+        Action("read", doc_id="r"),
+    ])
+    solver = ScriptedPolicy([
+        Action("finish", answer="Quartz9", citations=("p", "r")),
+    ])
+    fallback = ScriptedPolicy([])
+    agent = GraphResearchAgent(
+        docs, fallback, role_mode="multi",
+        role_policies={"planner": planner, "researcher": researcher, "solver": solver},
+    )
+    trace = agent.run(q)
+    assert trace.termination == "finish"
+    assert len(planner.calls) == 1
+    assert len(researcher.calls) == 3
+    assert len(solver.calls) == 1
+    assert len(fallback.calls) == 0
+    assert trace.policy.endswith("_role_split")
+    assert set(trace.citations) == {"p", "r"}
+    with pytest.raises(ValueError, match="require multi"):
+        GraphResearchAgent(docs, fallback, role_mode="single",
+                           role_policies={"planner": planner})

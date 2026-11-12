@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
@@ -71,6 +72,7 @@ class GraphResearchAgent:
         config: AgentConfig | None = None,
         *,
         role_mode: Literal["multi", "single"] = "multi",
+        role_policies: Mapping[str, Policy] | None = None,
         min_citations: int = 2,
         evidence_state_mode: Literal["off", "v1", "v2", "v3"] = "off",
         checkpointer: Any = None,
@@ -80,6 +82,10 @@ class GraphResearchAgent:
             raise ValueError("role_mode must be multi or single")
         if evidence_state_mode not in {"off", "v1", "v2", "v3"}:
             raise ValueError("invalid evidence-state mode")
+        if role_policies and role_mode != "multi":
+            raise ValueError("separate role policies require multi role mode")
+        if role_policies and not set(role_policies).issubset(ROLE_GUIDANCE):
+            raise ValueError("unsupported role policy key")
         if min_citations < 1:
             raise ValueError("min_citations must be positive")
         if not thread_namespace:
@@ -88,6 +94,7 @@ class GraphResearchAgent:
         self.index = BM25Index(documents, title_boost=(config or AgentConfig()).title_boost)
         self.config = config or AgentConfig()
         self.policy = policy
+        self.role_policies = dict(role_policies or {})
         self.role_mode = role_mode
         self.min_citations = min_citations
         self.evidence_state_mode = evidence_state_mode
@@ -148,10 +155,11 @@ class GraphResearchAgent:
 
     def _role_node(self, role: str):
         def decide(state: ResearchState) -> dict[str, Any]:
-            before = int(getattr(self.policy, "model_calls", 0))
+            role_policy = self.role_policies.get(role, self.policy)
+            before = int(getattr(role_policy, "model_calls", 0))
             try:
                 if role != "single_policy" and callable(
-                    getattr(self.policy, "decide_with_system", None)
+                    getattr(role_policy, "decide_with_system", None)
                 ):
                     guidance = ROLE_GUIDANCE[role]
                     if state.get("evidence_summary"):
@@ -159,14 +167,14 @@ class GraphResearchAgent:
                             "\nNon-oracle lexical evidence proxy (NOT entailment): "
                             + json.dumps(state["evidence_summary"], sort_keys=True)
                         )
-                    action = self.policy.decide_with_system(
+                    action = role_policy.decide_with_system(
                         state["question"],
                         list(state["observations"]),
                         self.config.max_steps - state["steps_used"],
                         SYSTEM + "\n" + guidance,
                     )
                 else:
-                    action = self.policy.decide(
+                    action = role_policy.decide(
                         state["question"],
                         list(state["observations"]),
                         self.config.max_steps - state["steps_used"],
@@ -179,7 +187,7 @@ class GraphResearchAgent:
                     "step": state["steps_used"],
                     "role": role,
                     "role_model_calls": (
-                        int(getattr(self.policy, "model_calls", 0)) - before
+                        int(getattr(role_policy, "model_calls", 0)) - before
                     ),
                     "action": wire,
                 }
@@ -377,10 +385,16 @@ class GraphResearchAgent:
         thread_id = f"{self.thread_namespace}:{question.question_id}:{uuid4().hex}"
         self.last_thread_id = thread_id
         start = time.perf_counter()
-        before = {
-            name: int(getattr(self.policy, name, 0))
+        # Account for distinct model providers without double counting shared roles.
+        policies = {id(p): p for p in (self.policy, *self.role_policies.values())}
+        before = {key: {
+            name: int(getattr(p, name, 0))
             for name in ("model_calls", "prompt_tokens", "completion_tokens")
-        }
+        } for key, p in policies.items()}
+
+        def usage_delta(name: str) -> int:
+            return sum(int(getattr(p, name, 0)) - before[key][name]
+                       for key, p in policies.items())
         final = self.graph.invoke(
             initial,
             config={
@@ -391,7 +405,8 @@ class GraphResearchAgent:
         return AgentTrace(
             question_id=question.question_id,
             question=question.question,
-            policy=f"langgraph_{self.role_mode}_{self.policy.name}",
+            policy=(f"langgraph_{self.role_mode}_{self.policy.name}"
+                    + ("_role_split" if self.role_policies else "")),
             steps=final["steps"],
             answer=final.get("answer", ""),
             citations=final.get("citations", []),
@@ -400,11 +415,8 @@ class GraphResearchAgent:
             search_calls=final["search_calls"],
             read_calls=final["read_calls"],
             elapsed_ms=round((time.perf_counter() - start) * 1000),
-            model_calls=int(getattr(self.policy, "model_calls", 0)) - before["model_calls"],
-            prompt_tokens=int(getattr(self.policy, "prompt_tokens", 0)) - before["prompt_tokens"],
-            completion_tokens=(
-                int(getattr(self.policy, "completion_tokens", 0))
-                - before["completion_tokens"]
-            ),
+            model_calls=usage_delta("model_calls"),
+            prompt_tokens=usage_delta("prompt_tokens"),
+            completion_tokens=usage_delta("completion_tokens"),
             error=final.get("error", ""),
         )

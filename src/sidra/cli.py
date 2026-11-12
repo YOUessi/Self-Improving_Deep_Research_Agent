@@ -46,6 +46,9 @@ def main() -> None:
     ev.add_argument("--runtime", choices=["legacy", "langgraph"], default="legacy",
                     help="Opt-in LangGraph multi-role/Search/READ/Verifier runtime")
     ev.add_argument("--graph-role-mode", choices=["multi", "single"], default="multi")
+    ev.add_argument("--graph-planner-model", type=str)
+    ev.add_argument("--graph-researcher-model", type=str)
+    ev.add_argument("--graph-solver-model", type=str)
     ev.add_argument("--graph-evidence-state", choices=["off", "v1", "v2", "v3"], default="off",
                     help="Observable evidence state (experimental; default off)")
     ev.add_argument("--graph-checkpoint-db", type=Path, default=None,
@@ -90,6 +93,24 @@ def main() -> None:
             args.endpoint, args.model, key_env=args.key_env,
             constrain_actions=args.constrain_actions,
             constrain_document_ids=args.constrain_document_ids)
+    graph_role_models = {
+        role: model for role, model in (
+            ("planner", args.graph_planner_model),
+            ("researcher", args.graph_researcher_model),
+            ("solver", args.graph_solver_model),
+        ) if model
+    }
+    if graph_role_models and (args.runtime != "langgraph"
+                              or args.graph_role_mode != "multi"
+                              or args.policy not in {"openai", "multi-openai"}):
+        parser.error("separate graph role models require LangGraph multi with OpenAI policy")
+    graph_role_policies = {
+        role: OpenAICompatiblePolicy(
+            args.endpoint, model, key_env=args.key_env,
+            constrain_actions=args.constrain_actions,
+            constrain_document_ids=args.constrain_document_ids)
+        for role, model in graph_role_models.items()
+    }
     if args.policy.startswith("multi-") and args.runtime == "legacy":
         from sidra.multi_agent import MultiAgentPolicy
         policy = MultiAgentPolicy(policy, min_citations=args.min_citations)
@@ -110,7 +131,8 @@ def main() -> None:
                       runtime=args.runtime, graph_role_mode=args.graph_role_mode,
                       graph_evidence_state_mode=args.graph_evidence_state,
                       graph_min_citations=args.min_citations,
-                      graph_checkpoint_db=args.graph_checkpoint_db)
+                      graph_checkpoint_db=args.graph_checkpoint_db,
+                      graph_role_policies=graph_role_policies)
     print(json.dumps(result, indent=2))
     print(f"Results saved in {args.out}")
 
